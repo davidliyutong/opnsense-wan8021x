@@ -16,6 +16,9 @@ jobs:
   lint:
     name: Lint and format
     runs-on: ubuntu-latest
+    env:
+      # separate tag, so a local "act" run does not replace the dev image of "make lint"
+      DEV_TAG: ci
     steps:
       - uses: actions/checkout@v5
         with:

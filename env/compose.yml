@@ -40,7 +40,7 @@ services:
     restart: on-failure
 
   dev:
-    image: wan8021x/dev:local
+    image: wan8021x/dev:${DEV_TAG:-local}
     build: { <<: *build, dockerfile: env/dev/Dockerfile }
     profiles: [tools]
     network_mode: host
