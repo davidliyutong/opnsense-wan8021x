@@ -27,7 +27,8 @@ step "python syntax"
 find "$src" -name '*.py' -exec python3 -c 'import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]' {} + || fail
 
 step "no direct process execution in PHP (upstream lint-exec, needs git)"
-git grep --untracked -n -e '[^li][^w>:]exec(' -e '^exec(' -e 'shell_exec(' -e '[^f]passthru(' -e '^passthru(' \
+# the checkout may belong to another uid than the container user (act, CI)
+git -c safe.directory='*' grep --untracked -n -e '[^li][^w>:]exec(' -e '^exec(' -e 'shell_exec(' -e '[^f]passthru(' -e '^passthru(' \
 	-e '[^._a-z]system(' -e '^system(' -- "$src" ':!*.js' ':!*.py'
 [ $? = 1 ] || fail  # 1: no match
 
