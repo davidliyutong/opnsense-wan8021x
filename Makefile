@@ -11,12 +11,19 @@ export HOST_UID HOST_GID
 COMPOSE		= docker compose -f env/compose.yml --env-file env/versions.env
 VM_RUN		= $(COMPOSE) run --rm --no-deps --entrypoint /usr/local/sbin/vm-entrypoint vm
 DEV		= $(COMPOSE) run --rm --no-deps dev
+# act runs the workflows in a job container capped like a GitHub-hosted
+# ubuntu-latest runner for private repositories (2 CPU, 8 GB RAM, no swap).
+# Disk (14 GB there) cannot be capped with overlay2; see docs/testenv.md.
+ACT_LIMITS	= --cpus=2 --memory=8g --memory-swap=8g
+ACT		= act -P ubuntu-latest=wan8021x/act:local --pull=false \
+		  --artifact-server-path .cache/act/artifacts \
+		  --container-options "$(ACT_LIMITS) --device /dev/kvm"
 BASE		= images/base-$(OPNSENSE_VERSION).qcow2
 GOLDEN		= vm/golden.qcow2
 PLUGIN		= net/wan8021x
 
 .PHONY: help tools image golden reset up down restart logs console ssh shell \
-	deploy remove package lint lint-local test check status clean
+	deploy remove package lint lint-local ci-local test check status clean
 
 help:
 	@echo "tools     build the local docker images (qemu, authenticator, dev tools)"
@@ -32,6 +39,7 @@ help:
 	@echo "lint-local  only the dev container checks (what CI runs on every push)"
 	@echo "test      end-to-end tests against the running VM (TESTARGS=... for pytest)"
 	@echo "check     lint + fresh VM + deploy + all tests"
+	@echo "ci-local  run the GitHub workflows with act under runner limits (ACTARGS=\"-j lint\")"
 
 tools:
 	$(COMPOSE) --profile tools build
@@ -106,6 +114,10 @@ test:
 	$(DEV) python3 -m pytest -v tests/e2e $(TESTARGS)
 
 check: lint reset deploy test
+
+ci-local:
+	docker build -q --build-arg ACT_IMAGE=$(ACT_IMAGE) -t wan8021x/act:local env/act
+	$(ACT) push -W .github/workflows/ci.yml $(ACTARGS)
 
 clean: down
 	rm -rf .cache/vm .cache/run .cache/auth
