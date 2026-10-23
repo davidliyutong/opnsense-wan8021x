@@ -33,8 +33,9 @@ jobs:
       - name: Lint and package on FreeBSD
         uses: vmactions/freebsd-vm@v1
         with:
-          # OPNsense 26.7 is FreeBSD 15, the pkg ABI is FreeBSD:15:amd64
-          release: '15.0'
+          # newest 15.x: OPNsense 26.7 is FreeBSD 15.1 (pkg ABI FreeBSD:15:amd64),
+          # and packages from the ports tree need the latest minor's libc
+          release: '15'
           usesh: true
           envs: 'PLUGIN STAGE PLUGIN_HASH MAKE_ARGS'
           prepare: pkg install -y php84 libxml2
