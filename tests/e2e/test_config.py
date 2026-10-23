@@ -4,7 +4,7 @@ import re
 import requests
 
 import vmlib
-from conftest import vm_sh
+from conftest import authorized, vm_sh, wait_for
 
 
 def test_pap_requires_ttls(plugin):
@@ -65,3 +65,11 @@ def test_gui_page():
     assert page.status_code == 200
     assert "supplicantStatus" in page.text
     assert "/api/wan8021x/settings/search_supplicant" in page.text
+
+
+def test_log_lines_not_double_prefixed(plugin):
+    plugin.configure()
+    wait_for(lambda: authorized(), timeout=30, what="authentication")
+    logs = vm_sh("cat /var/log/wan8021x/*.log")
+    assert "CTRL-EVENT-EAP-SUCCESS" in logs
+    assert "vtnet1: vtnet1:" not in logs.split("starting supplicant")[-1]

@@ -32,6 +32,7 @@
 
 import json
 import os
+import re
 import socket
 import sys
 
@@ -43,7 +44,6 @@ STATUS_KEYS = {
     'Supplicant PAE state': 'pae_state',
     'suppPortStatus': 'port',
     'EAP state': 'eap_state',
-    'selectedMethod': 'method',
 }
 
 
@@ -75,10 +75,14 @@ def supplicants():
         try:
             for line in ctrl_command(row['device'], 'STATUS').splitlines():
                 key, _, value = line.partition('=')
-                if key in STATUS_KEYS:
+                if key == 'selectedMethod':
+                    # "25 (EAP-PEAP)" -> "PEAP"
+                    match = re.search(r'\((?:EAP-)?([^)]+)\)', value)
+                    row['method'] = match.group(1) if match else value
+                elif key in STATUS_KEYS:
                     row[STATUS_KEYS[key]] = value
                 elif key.endswith('Phase2 method'):
-                    row['method'] = '%s / %s' % (row.get('method', ''), value)
+                    row['phase2'] = value
         except OSError:
             row['port'] = ''
     print(json.dumps(rows))

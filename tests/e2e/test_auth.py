@@ -20,15 +20,16 @@ def assert_authenticated(plugin, interface="wan", port="untagged"):
     return row
 
 
-@pytest.mark.parametrize("method,phase2,label", [
-    ("PEAP", "MSCHAPV2", "PEAP"),
-    ("TTLS", "MSCHAPV2", "TTLS"),
-    ("TTLS", "PAP", "TTLS"),
+@pytest.mark.parametrize("method,phase2,inner", [
+    ("PEAP", "MSCHAPV2", "MSCHAPV2"),
+    ("TTLS", "MSCHAPV2", "MSCHAPV2"),
+    ("TTLS", "PAP", "PAP"),
 ])
-def test_methods(plugin, method, phase2, label):
+def test_methods(plugin, method, phase2, inner):
     plugin.configure(eap_method=method, phase2=phase2)
     row = assert_authenticated(plugin)
-    assert label in row["method"]
+    assert row["method"] == method
+    assert inner in row["phase2"]
     assert plugin.service_status() == "running"
     wait_for(wan_reachable, timeout=30, what="traffic through the port")
     assert ipv4("vtnet1").startswith("172.31.0.")

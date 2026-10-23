@@ -43,6 +43,7 @@
         <id>supplicant.password</id>
         <label>Password</label>
         <type>password</type>
+        <help>The stored password is never shown. Leave empty to keep it.</help>
         <grid_view>
             <visible>false</visible>
         </grid_view>

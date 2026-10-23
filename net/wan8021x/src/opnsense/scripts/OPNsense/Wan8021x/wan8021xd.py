@@ -197,7 +197,10 @@ class Supplicant:
         if data:
             for line in data.decode(errors='replace').splitlines():
                 if line.strip():
-                    log(syslog.LOG_INFO, '%s: %s' % (self.device, line))
+                    # most supplicant messages already carry the interface name
+                    if not line.startswith(self.device + ':'):
+                        line = '%s: %s' % (self.device, line)
+                    log(syslog.LOG_INFO, line)
 
     def on_ctrl(self):
         try:

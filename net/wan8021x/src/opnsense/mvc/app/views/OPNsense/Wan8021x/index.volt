@@ -84,7 +84,7 @@
                         $('<td>').text(row.device),
                         $('<td>').append(stateLabel(row)),
                         $('<td>').text(row.eap_state || ''),
-                        $('<td>').text(row.method || ''),
+                        $('<td>').text([row.method, row.phase2].filter(Boolean).join(' / ')),
                         $('<td>').text(row.last_error || ''),
                         $('<td>').append(btn)
                     ));

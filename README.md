@@ -32,3 +32,14 @@ make package          # 生成 .cache/pkg/os-wan8021x-devel-*.pkg
 * 日志：Interfaces → 802.1X Supplicant → Log File
 
 GUI：https://127.0.0.1:18443（root / opnsense）；ssh：`make ssh`。
+
+## 截图
+
+| 设置 | 编辑 |
+|---|---|
+| ![settings](docs/screenshots/settings.jpg) | ![edit](docs/screenshots/edit-dialog.jpg) |
+
+状态（认证成功 / 密码错误）：
+
+![status ok](docs/screenshots/status-ok.png)
+![status failed](docs/screenshots/status-failed.png)
