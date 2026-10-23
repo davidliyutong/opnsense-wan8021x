@@ -72,7 +72,7 @@ run() {
 		-netdev tap,id=wan,ifname=tap-wan,script=no,downscript=no \
 		-device virtio-net-pci,netdev=wan,mac=$WAN_MAC \
 		-display none -vga none \
-		-chardev socket,id=ser0,path="$RUN_DIR/serial.sock",server=on,wait=off,logfile="$RUN_DIR/serial.log",logappend=on \
+		-chardev "socket,id=ser0,path=$RUN_DIR/serial.sock,server=on,wait=off,logfile=$RUN_DIR/serial.log,logappend=on" \
 		-serial chardev:ser0 \
 		-monitor unix:"$RUN_DIR/monitor.sock",server=on,wait=off
 }

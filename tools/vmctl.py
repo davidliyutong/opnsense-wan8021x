@@ -6,6 +6,7 @@
   vmctl.py deploy PLUGIN_DIR    install the plugin source tree into the VM
   vmctl.py remove PLUGIN_DIR    remove the plugin files from the VM
   vmctl.py package PLUGIN_DIR   build the pkg inside the VM, copy to .cache/pkg
+  vmctl.py lint PLUGIN_DIR      run the upstream "make lint" inside the VM
 """
 import os
 import subprocess
@@ -15,9 +16,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import vmlib  # noqa: E402
 from vmlib import log  # noqa: E402
 
-# Layout inside the VM mirroring the opnsense/plugins repository, so the
-# upstream Mk/ files work unmodified.
-VM_TREE = "/root/wan8021x"
+# Layout inside the VM mirroring the opnsense/plugins repository next to a
+# core checkout (Mk/ looks for ../core), so the upstream Mk/ files work unmodified.
+VM_TREE = "/root/plugins"
+VM_CORE = "/root/core"
 
 
 def serial(cmd):
@@ -40,16 +42,24 @@ def serial(cmd):
 
 
 def sync_tree(plugin):
-    """Copy Mk/ + the plugin directory to the VM (tar over ssh, no rsync needed)."""
+    """Copy the upstream build glue + the plugin directory to the VM (tar over ssh, no rsync needed)."""
     root = vmlib.ROOT
     tar = subprocess.Popen(
-        ["tar", "-C", root, "-chf", "-", "--exclude=.git", "Mk", plugin],
+        ["tar", "-C", root, "-chf", "-", "--exclude=.git", "--exclude=__pycache__",
+         "Mk", "Templates", "Scripts", "Keywords", plugin],
         stdout=subprocess.PIPE)
     r = subprocess.run(vmlib.ssh_base() + [f"rm -rf {VM_TREE} && mkdir -p {VM_TREE} && tar -C {VM_TREE} -xf -"],
                        stdin=tar.stdout)
     tar.wait()
     if r.returncode or tar.returncode:
         raise RuntimeError("copying the source tree failed")
+    tar = subprocess.Popen(["tar", "-C", os.path.join(root, "vendor", "core"), "-cf", "-", "Mk", "Scripts",
+                            "ruleset.xml", "contrib/parallel-lint", "src/opnsense/mvc/app/models"], stdout=subprocess.PIPE)
+    r = subprocess.run(vmlib.ssh_base() + [f"rm -rf {VM_CORE} && mkdir -p {VM_CORE} && tar -C {VM_CORE} -xf -"],
+                       stdin=tar.stdout)
+    tar.wait()
+    if r.returncode or tar.returncode:
+        raise RuntimeError("copying the core build glue failed")
 
 
 def make(plugin, target):
@@ -68,14 +78,15 @@ def main():
         sys.exit(serial(" ".join(args)))
     elif cmd == "deploy":
         sync_tree(args[0])
-        make(args[0], "upgrade" if vmlib.ssh(f"pkg info -e os-{os.path.basename(args[0])}",
-                                               check=False).returncode == 0 else "install")
-        vmlib.ssh("/usr/local/etc/rc.configure_plugins; configctl webgui restart 2>/dev/null; true",
-                  check=False)
+        # build and (re)install a real package, so the pkg scripts run like in production
+        make(args[0], "upgrade")
         log(f"deployed {args[0]}")
     elif cmd == "remove":
         sync_tree(args[0])
         make(args[0], "remove")
+    elif cmd == "lint":
+        sync_tree(args[0])
+        make(args[0], "lint")
     elif cmd == "package":
         sync_tree(args[0])
         make(args[0], "package")

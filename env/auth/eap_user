@@ -4,3 +4,6 @@
 # Phase 2 users
 "alice"		MSCHAPV2,TTLS-MSCHAPV2,TTLS-PAP	"alice-secret"	[2]
 "bob"		MSCHAPV2,TTLS-MSCHAPV2		"bob-secret"	[2]
+# carol: identity 'carol \\ ü' (quoted: hostapd has no escapes in identities, so no ")
+# password 'p"a\\ss w0rd#; ü=}' (hex: quotes, backslash, UTF-8)
+"carol \ ü"		MSCHAPV2,TTLS-MSCHAPV2,TTLS-PAP	7022615c73732077307264233b20c3bc3d7d	[2]

@@ -16,7 +16,7 @@ GOLDEN		= vm/golden.qcow2
 PLUGIN		= net/wan8021x
 
 .PHONY: help tools image golden reset up down restart logs console ssh shell \
-	deploy remove package lint test status clean
+	deploy remove package lint test check status clean
 
 help:
 	@echo "tools     build the local docker images (qemu, authenticator, dev tools)"
@@ -28,8 +28,9 @@ help:
 	@echo "ssh       ssh into the VM as root"
 	@echo "deploy    install the plugin from this tree into the VM"
 	@echo "package   build os-wan8021x pkg inside the VM into .cache/pkg"
-	@echo "lint      static checks (php, xml, shell) in the dev container"
-	@echo "test      end-to-end tests (resets the VM)"
+	@echo "lint      style checks in the dev container + upstream make lint in the VM"
+	@echo "test      end-to-end tests against the running VM (TESTARGS=... for pytest)"
+	@echo "check     lint + fresh VM + deploy + all tests"
 
 tools:
 	$(COMPOSE) --profile tools build
@@ -96,9 +97,12 @@ status:
 
 lint:
 	$(DEV) tools/lint.sh $(PLUGIN)
+	$(DEV) python3 tools/vmctl.py lint $(PLUGIN)
 
 test:
 	$(DEV) python3 -m pytest -v tests/e2e $(TESTARGS)
+
+check: lint reset deploy test
 
 clean: down
 	rm -rf .cache/vm .cache/run .cache/auth

@@ -5,6 +5,8 @@
 #   authctl deauth MAC [if]   force port back to unauthorized
 #   authctl flap [secs]       pull the VM's WAN cable for a while (QEMU set_link)
 #   authctl leases            dnsmasq leases
+#   authctl authorized [v100] authorized MACs, one per line
+#   authctl reset             all ports back to unauthorized
 set -eu
 cmd=${1:-status}
 case $cmd in
@@ -23,5 +25,20 @@ flap)
 	mon "set_link wan on"
 	;;
 leases) cat /var/lib/misc/dnsmasq.leases 2>/dev/null || true ;;
+authorized)
+	set=auth_untagged
+	[ "${2:-}" = v100 ] && set=auth_v100
+	nft -j list set netdev wan8021x $set |
+		grep -oE '([0-9a-f]{2}:){5}[0-9a-f]{2}' || true
+	;;
+reset)
+	for ifc in tap-wan tap-wan.100; do
+		for sta in $(hostapd_cli -p /run/hostapd -i $ifc list_sta); do
+			hostapd_cli -p /run/hostapd -i $ifc deauthenticate "$sta" >/dev/null
+		done
+	done
+	nft flush set netdev wan8021x auth_untagged
+	nft flush set netdev wan8021x auth_v100
+	;;
 *) echo "unknown command: $cmd" >&2; exit 64 ;;
 esac

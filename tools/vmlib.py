@@ -130,5 +130,6 @@ def api(method, path, data=None):
         k = json.load(f)
     r = requests.request(method, f"https://127.0.0.1:{GUI_PORT}/api/{path}",
                          auth=(k["key"], k["secret"]), json=data, verify=False, timeout=60)
-    r.raise_for_status()
+    if not r.ok:
+        raise RuntimeError(f"{method} {path}: HTTP {r.status_code} {r.text[:500]}")
     return r.json()

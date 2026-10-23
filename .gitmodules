@@ -1,3 +1,6 @@
 [submodule "vendor/opnsense-plugins"]
-	path = vendor/opnsense-plugins
+	path = vendor/plugins
 	url = https://github.com/opnsense/plugins
+[submodule "vendor/opnsense-core"]
+	path = vendor/core
+	url = https://github.com/opnsense/core

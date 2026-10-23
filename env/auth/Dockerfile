@@ -8,4 +8,4 @@ RUN sh /usr/local/sbin/apt-snapshot.sh "${DEBIAN_SNAPSHOT}" \
     && rm -rf /var/lib/apt/lists/*
 COPY env/auth/ /etc/authenv/
 RUN chmod +x /etc/authenv/*.sh && ln -s /etc/authenv/authctl.sh /usr/local/bin/authctl
-ENTRYPOINT ["/etc/authenv/entrypoint.sh"]
+ENTRYPOINT ["/etc/authenv/run.sh"]
