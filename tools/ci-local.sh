@@ -7,7 +7,8 @@
 set -eu
 root=$(pwd)
 # vmactions/freebsd-vm syncs $HOME/work into the VM, as on a GitHub runner
-# (/home/runner/work/REPO/REPO), so the clone lives in $home/work.
+# (/home/runner/work/REPO/REPO), so the clone lives in $home/work and the job
+# image gets $home as the runner home (env/act/Dockerfile).
 home=$root/.cache/act
 ws=$home/work/repo
 : "${ACT_IMAGE:?set ACT_IMAGE (env/versions.env)}"
@@ -22,8 +23,8 @@ git config -f .gitmodules --get-regexp '\.path$' | while read -r key path; do
 done
 git -C "$ws" -c protocol.file.allow=always submodule update -q --init
 
-docker build -q --build-arg ACT_IMAGE="$ACT_IMAGE" -t wan8021x/act:local env/act >/dev/null
+docker build -q --build-arg ACT_IMAGE="$ACT_IMAGE" --build-arg RUNNER_HOME="$home" -t wan8021x/act:local env/act >/dev/null
 exec act -C "$ws" -P ubuntu-latest=wan8021x/act:local --pull=false \
-	--env HOME="$home" --artifact-server-path "$home/artifacts" \
+	--artifact-server-path "$home/artifacts" \
 	--container-options "--cpus=2 --memory=8g --memory-swap=8g --device /dev/kvm" \
 	push "$@"
