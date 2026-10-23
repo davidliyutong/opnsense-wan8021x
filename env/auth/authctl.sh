@@ -14,6 +14,11 @@ deauth) hostapd_cli -p /run/hostapd -i "${3:-tap-wan}" deauthenticate "$2" ;;
 flap)
 	mon() { echo "$1" | socat - UNIX-CONNECT:/cache/run/monitor.sock >/dev/null; }
 	mon "set_link wan off"
+	# a real switch drops the port back to unauthorized on link loss
+	for sta in $(hostapd_cli -p /run/hostapd -i tap-wan list_sta); do
+		hostapd_cli -p /run/hostapd -i tap-wan deauthenticate "$sta" >/dev/null
+	done
+	nft flush set netdev wan8021x auth_untagged
 	sleep "${2:-3}"
 	mon "set_link wan on"
 	;;
