@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      # the same pinned dev image as "make lint" locally: php -l, phpcs with the
+      # opnsense/core ruleset, pycodestyle, xmllint, shellcheck
+      - name: Build dev tools image
+        run: |
+          HOST_UID=$(id -u) HOST_GID=$(id -g) \
+            docker compose -f env/compose.yml --env-file env/versions.env build dev
+      - name: Lint
+        run: make lint-local
+
+  build:
+    name: Build
+    uses: ./.github/workflows/build.yml

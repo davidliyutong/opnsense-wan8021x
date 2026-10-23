@@ -20,6 +20,9 @@ phpcs --standard=vendor/core/ruleset.xml --extensions=php,inc --runtime-set igno
 step "pycodestyle (as upstream: E501 ignored)"
 python3 -m pycodestyle --ignore=E501 "$src" || fail
 
+step "pycodestyle (test harness and tooling)"
+python3 -m pycodestyle --max-line-length=120 tools tests env/provision || fail
+
 step "python syntax"
 find "$src" -name '*.py' -exec python3 -c 'import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]' {} + || fail
 
@@ -33,7 +36,7 @@ find "$src" -name '*.xml' -exec xmllint --noout {} + || fail
 
 step "shellcheck"
 shellcheck -s sh -e SC1091,SC2034 "$src/etc/rc.d/"* || fail
-shellcheck -s sh tools/lint.sh env/auth/authctl.sh env/auth/portctl.sh env/auth/gen-certs.sh \
+shellcheck -s sh tools/lint.sh tools/stage.sh env/auth/authctl.sh env/auth/portctl.sh env/auth/gen-certs.sh \
 	env/auth/authctl-sock.sh env/vm/entrypoint.sh env/apt-snapshot.sh tools/bin/vm-ssh || fail
 shellcheck -s bash env/auth/entrypoint.sh env/auth/run.sh || fail
 

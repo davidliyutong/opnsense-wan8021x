@@ -43,7 +43,8 @@ rc.d/wan8021x ──► daemon(8) ──► wan8021xd.py ─┼─► wpa_suppli
 net/wan8021x/      插件本体（opnsense/plugins 目录结构）
 env/               测试环境：vm/（QEMU/KVM）、auth/（认证端）、dev/（工具链）、provision/
 tests/e2e/         端到端测试（pytest）
-tools/             vmctl.py, vmlib.py, lint.sh, bin/vm-ssh
+tools/             vmctl.py, vmlib.py, lint.sh, stage.sh, bin/vm-ssh
+.github/workflows/ CI（lint + FreeBSD 构建）和基于 tag 的发布
 spikes/            docs/research.md 背后的实验脚本
 vendor/plugins     opnsense/plugins @ 26.7.7（Mk/、Templates/ 等由此软链接）
 vendor/core        opnsense/core @ 26.7.7（lint 规则、ruleset.xml）
@@ -63,12 +64,19 @@ make reset            # 基于 golden 磁盘重建全新虚拟机和认证端（
 make deploy           # 在虚拟机内构建软件包并安装
 make test             # 针对运行中的虚拟机执行端到端测试（TESTARGS="-k vlan"）
 make lint             # 本地运行 phpcs/pycodestyle/shellcheck，并在虚拟机内运行上游 "make lint"
+make lint-local       # 只运行本地检查（不需要虚拟机），即 CI 运行的内容
 make check            # lint + reset + deploy + test（约 3 分钟）
 make package          # .cache/pkg/os-wan8021x-devel-*.pkg
 make help             # 其他所有目标（console、ssh、logs、down 等）
 ```
 
 GUI：https://127.0.0.1:18443（root / opnsense，自签名证书）；ssh：`make ssh`。端口在 `env/versions.env` 中设置。
+
+### CI 与发布
+
+每次 push 和 pull request 都会在固定版本的 dev 镜像中运行 `make lint-local`，并在 FreeBSD 15 虚拟机（OPNsense 26.7 的基础系统）中运行上游的 `make lint` 和 `make package`；生成的 `-devel` 软件包保存为 workflow artifact。端到端测试需要 `/dev/kvm` 和认证端，仍在本地运行（`make check`）。
+
+发布时，先在 `net/wan8021x/Makefile` 中设置 `PLUGIN_VERSION`，再推送对应的 tag（`v0.1`；若 `PLUGIN_REVISION=1` 则为 `v0.1_1`）。release workflow 会构建 `os-wan8021x-<version>.pkg`（不带 `-devel` 后缀），并连同 `SHA256SUMS` 一起发布为 GitHub release。
 
 ### 测试环境
 
