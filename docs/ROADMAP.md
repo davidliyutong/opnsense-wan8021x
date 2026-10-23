@@ -1,5 +1,24 @@
 # OPNsense WAN 802.1X 插件 —— 环境搭建与开发路线
 
+## 进度（2026-10-23）
+
+| 里程碑 | 状态 |
+|---|---|
+| M0 骨架 | ✅ |
+| M1 测试环境 | ✅ golden 镜像约 1 分钟生成，`make reset` 约 20 秒 |
+| M2 spike | ✅ 结论见 research.md（拔线后需要主动重认证、EAPOL 目标 MAC 无法自定义） |
+| M3 插件 MVP | ✅ PEAP/TTLS、状态页、手动重认证、link up 自动重认证 |
+| M4 健壮性 | ✅ VLAN、多接口、重启恢复、失败原因、日志、敏感信息保护、升级与卸载 |
+| M5 e2e | ✅ 24 个用例，`make check` 从全新 VM 跑完约 3 分钟 |
+| M6 打包 | 🟡 `make package` 已可用；尚未提交上游，文档待补（截图、用户手册） |
+
+与原计划的差异：去掉了“认证成功后 interface reconfigure”（S2 证明不需要）；
+link 监听用 `route -n monitor` 代替 devd（devd 只执行优先级最高的规则）；
+删除了 promisc 选项（core 接口设置已有）。
+
+---
+
+
 ## Context
 
 OPNsense（当前 26.7.x，基于 FreeBSD 14）没有在 WAN 有线口上做 802.1X 认证的 GUI 功能；社区现有方案只有 pfatt/opnatt 一类 shell 脚本（[opnatt-supplicant.sh](https://git.hhf.technology/hhf/pfatt/src/branch/supplicant/bin/opnatt-supplicant.sh)），并不可维护。目标：做一个符合 opnsense/plugins 规范的插件，在 GUI 中为 WAN（物理口或 VLAN 子接口）配置 PEAP / TTLS（MSCHAPv2）认证，并配套一个用 Docker + KVM 搭建、可一键重置的测试环境。所有工具链放在当前目录，使用 git 管理。

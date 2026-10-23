@@ -1,0 +1,16 @@
+<acl>
+    <page-interfaces-wan8021x>
+        <name>Interfaces: 802.1X Supplicant</name>
+        <patterns>
+            <pattern>ui/wan8021x/*</pattern>
+            <pattern>api/wan8021x/*</pattern>
+        </patterns>
+    </page-interfaces-wan8021x>
+    <page-interfaces-wan8021x-log>
+        <name>Interfaces: 802.1X Supplicant: Log File</name>
+        <patterns>
+            <pattern>ui/diagnostics/log/core/wan8021x/*</pattern>
+            <pattern>api/diagnostics/log/core/wan8021x/*</pattern>
+        </patterns>
+    </page-interfaces-wan8021x-log>
+</acl>

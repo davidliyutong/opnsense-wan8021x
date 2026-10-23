@@ -50,6 +50,24 @@ make status         # 授权 MAC 集合与计数器
 docker compose -f env/compose.yml exec auth authctl sta|deauth MAC|flap 5|leases
 ```
 
+## 测试如何控制认证端
+
+dev 容器没有 docker 权限。认证端在 `.cache/run/authctl.sock` 上提供 `authctl` 的远程调用
+（每个连接发送一行参数，返回输出加 `rc=N`），日志同时写到 `.cache/run/auth.log`。
+`tests/e2e/conftest.py` 中的 `auth()`、`authorized()` 就是基于它实现的。
+
+```
+printf 'authorized\n' | socat - UNIX-CONNECT:.cache/run/authctl.sock
+```
+
+## 测试与检查
+
+```
+make lint      # dev 容器：php -l、phpcs(core ruleset)、pycodestyle、xmllint、shellcheck；VM：上游 make lint
+make test      # 对当前 VM 运行 e2e（TESTARGS="-k vlan" 可筛选）
+make check     # lint + reset + deploy + test，从干净状态全部跑一遍
+```
+
 ## 与真实交换机的差异
 
 * 端口状态由 nftables 模拟，只过滤 VM 发往认证端的方向。

@@ -1,0 +1,5 @@
+# resume authentication after an upgrade (templates were reloaded above),
+# restart so a daemon left over by an older package runs the new code
+if /usr/local/etc/rc.d/wan8021x enabled; then
+	/usr/local/etc/rc.d/wan8021x restart || true
+fi

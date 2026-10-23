@@ -62,7 +62,10 @@ spike 脚本在 `spikes/` 目录。
 1. 插件自带 devd 规则（`/usr/local/etc/devd/`），在 LINK_UP 时执行 `configctl wan8021x linkup <dev>`。需要确认 devd 对同一事件会执行多条 notify 规则。
 2. 每个 supplicant 配一个轻量 watcher（`route -n monitor` 或 kqueue），不依赖 devd。
 
-推荐优先用 1；如果 devd 的多规则行为不可靠，退回 2。在 M4 中验证。
+**已验证（M3）**：devd 对同一事件只执行优先级最高的一条 notify 规则。插件自带规则（优先级 0 或 101）都没有被执行，
+core 的 `rc.linkup` 照常执行。要想生效就只能用更高的优先级覆盖 core 的规则，这太脆弱，**因此采用方案 2**：
+守护进程解析 `route -n monitor` 的 `iface#N <dev> admin UP oper UP|DOWN` 行，在 link 由 DOWN 变 UP 时向 ctrl socket 发送 `REAUTHENTICATE`。
+VLAN 子接口会随父接口一起产生事件，所以只需监视 supplicant 自己的设备。
 
 另外，失败原因（密码错误或证书错误）要在状态页里显示：从 wpa_cli 事件（`CTRL-EVENT-EAP-FAILURE`、`CTRL-EVENT-EAP-TLS-CERT-ERROR`）中解析出来，写入状态文件。
 
@@ -73,3 +76,18 @@ spike 脚本在 `spikes/` 目录。
 3. **新增：link up 时重新认证**（M3 就纳入，否则拔线后断网）。
 4. 每个 supplicant 配一个 `wpa_cli -a` action 脚本，记录最近的事件和失败原因，供状态页使用。
 5. identity 和 password 按 wpa_supplicant 的语法正确转义，避免 core Wi-Fi 代码里直接插值的问题。
+
+## M3/M4 实现中的发现
+
+* `UpdateOnlyTextField::__toString()` 永远返回空字符串（防止回显）。生成配置时必须用 `getValue()` 取值，否则密码为空。
+* 密码为空时，wpa_supplicant 会发出 `CTRL-REQ-PASSWORD` 并无限等待，表现为“卡住”而不是失败。
+  守护进程把 `CTRL-REQ-*` 转换为 “credentials incomplete” 错误。
+* 用户输入的 identity、password、域名一律以十六进制写入 wpa_supplicant 配置，从根本上避免引号和转义问题
+  （用含 `\`、UTF-8 以及 `"` 的密码测试过）。
+* core 的接口设置本身就有 `promisc` 和 `disablevlanhwfilter`，因此插件不再重复提供这两个选项。
+* 包生命周期：core 的 `rc.configure_plugins` 在 POST_INSTALL 时不会启动服务。插件自带
+  `+PRE_DEINSTALL.pre`（停止服务）、`+POST_INSTALL.post`（已启用时重启服务）、`+POST_DEINSTALL.post`（清理）。
+* 26.7 新增的接口分配 API（`interfaces/assignment/*`）只负责分配本身，设置 IP 方式还得走旧配置；
+  通过 API 分配的接口默认是锁定状态，删除前必须先解锁。
+* 上游的 `make lint` 依赖 BSD 版的 find 和 sh，所以放在 VM 中执行（需要同步 core 的 `Mk/`、`Scripts/`、`contrib/parallel-lint`）；
+  phpcs 和 pycodestyle 在 dev 容器中执行，使用 core 的 `ruleset.xml`。

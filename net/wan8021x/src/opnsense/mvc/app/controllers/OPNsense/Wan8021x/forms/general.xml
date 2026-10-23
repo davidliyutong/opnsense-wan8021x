@@ -1,0 +1,15 @@
+<form>
+    <field>
+        <id>wan8021x.general.enabled</id>
+        <label>Enable</label>
+        <type>checkbox</type>
+        <help>Run an 802.1X supplicant on every enabled interface below.</help>
+    </field>
+    <field>
+        <id>wan8021x.general.debug</id>
+        <label>Debug logging</label>
+        <type>checkbox</type>
+        <advanced>true</advanced>
+        <help>Log the full EAP exchange. Credentials are never logged.</help>
+    </field>
+</form>

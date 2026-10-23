@@ -1,0 +1,4 @@
+#!/bin/sh
+
+# stop the supplicants before their files go away (also on upgrade)
+/usr/local/etc/rc.d/wan8021x onestop >/dev/null 2>&1 || true

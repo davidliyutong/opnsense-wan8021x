@@ -1,0 +1,96 @@
+<form>
+    <field>
+        <id>supplicant.enabled</id>
+        <label>Enabled</label>
+        <type>checkbox</type>
+        <grid_view>
+            <formatter>rowtoggle</formatter>
+        </grid_view>
+    </field>
+    <field>
+        <id>supplicant.interface</id>
+        <label>Interface</label>
+        <type>dropdown</type>
+        <help>The interface whose port is controlled by 802.1X, usually WAN. For a tagged uplink, assign the VLAN device as the interface and select it here.</help>
+    </field>
+    <field>
+        <id>supplicant.description</id>
+        <label>Description</label>
+        <type>text</type>
+    </field>
+    <field>
+        <type>header</type>
+        <label>Authentication</label>
+    </field>
+    <field>
+        <id>supplicant.eap_method</id>
+        <label>EAP method</label>
+        <type>dropdown</type>
+    </field>
+    <field>
+        <id>supplicant.phase2</id>
+        <label>Inner authentication</label>
+        <type>dropdown</type>
+        <help>PAP sends the password inside the TLS tunnel and is only available with TTLS.</help>
+    </field>
+    <field>
+        <id>supplicant.identity</id>
+        <label>Identity</label>
+        <type>text</type>
+        <help>The user name given by the network operator.</help>
+    </field>
+    <field>
+        <id>supplicant.password</id>
+        <label>Password</label>
+        <type>password</type>
+        <grid_view>
+            <visible>false</visible>
+        </grid_view>
+    </field>
+    <field>
+        <id>supplicant.anonymous_identity</id>
+        <label>Outer identity</label>
+        <type>text</type>
+        <help>Identity sent outside the TLS tunnel, such as anonymous@example.com. Leave empty to send the identity above.</help>
+        <grid_view>
+            <visible>false</visible>
+        </grid_view>
+    </field>
+    <field>
+        <type>header</type>
+        <label>Server validation</label>
+    </field>
+    <field>
+        <id>supplicant.ca</id>
+        <label>Certificate authority</label>
+        <type>dropdown</type>
+        <help>Only accept an authentication server whose certificate is issued by this authority. Without it any server is accepted and the password can be captured by a rogue authenticator.</help>
+        <grid_view>
+            <visible>false</visible>
+        </grid_view>
+    </field>
+    <field>
+        <id>supplicant.domain_match</id>
+        <label>Server domain</label>
+        <type>text</type>
+        <help>Also require the server certificate to be issued for this domain or a subdomain of it.</help>
+        <grid_view>
+            <visible>false</visible>
+        </grid_view>
+    </field>
+    <field>
+        <type>header</type>
+        <label>Link</label>
+        <advanced>true</advanced>
+    </field>
+    <field>
+        <id>supplicant.eapol_version</id>
+        <label>EAPOL version</label>
+        <type>dropdown</type>
+        <advanced>true</advanced>
+        <help>Some older switches only answer EAPOL version 1.</help>
+        <grid_view>
+            <visible>false</visible>
+        </grid_view>
+    </field>
+</form>

@@ -1,0 +1,82 @@
+<model>
+    <mount>//OPNsense/Wan8021x</mount>
+    <version>1.0.0</version>
+    <description>WAN 802.1X supplicant</description>
+    <items>
+        <general>
+            <enabled type="BooleanField">
+                <Default>0</Default>
+                <Required>Y</Required>
+            </enabled>
+            <debug type="BooleanField">
+                <Default>0</Default>
+                <Required>Y</Required>
+            </debug>
+        </general>
+        <supplicants>
+            <supplicant type="ArrayField">
+                <enabled type="BooleanField">
+                    <Default>1</Default>
+                    <Required>Y</Required>
+                </enabled>
+                <interface type="InterfaceField">
+                    <Required>Y</Required>
+                    <ValidationMessage>Select the interface to authenticate.</ValidationMessage>
+                    <Constraints>
+                        <check001>
+                            <type>UniqueConstraint</type>
+                            <ValidationMessage>This interface already has a supplicant.</ValidationMessage>
+                        </check001>
+                    </Constraints>
+                </interface>
+                <eap_method type="OptionField">
+                    <Default>PEAP</Default>
+                    <Required>Y</Required>
+                    <OptionValues>
+                        <PEAP/>
+                        <TTLS/>
+                    </OptionValues>
+                </eap_method>
+                <phase2 type="OptionField">
+                    <Default>MSCHAPV2</Default>
+                    <Required>Y</Required>
+                    <OptionValues>
+                        <MSCHAPV2>MSCHAPv2</MSCHAPV2>
+                        <PAP>PAP (TTLS only)</PAP>
+                    </OptionValues>
+                </phase2>
+                <identity type="TextField">
+                    <Required>Y</Required>
+                    <Mask>/^[^\r\n]{1,253}$/u</Mask>
+                    <ValidationMessage>Enter the user name (1 to 253 characters, no line breaks).</ValidationMessage>
+                </identity>
+                <anonymous_identity type="TextField">
+                    <Mask>/^[^\r\n]{0,253}$/u</Mask>
+                    <ValidationMessage>The outer identity cannot contain line breaks.</ValidationMessage>
+                </anonymous_identity>
+                <password type="UpdateOnlyTextField">
+                    <Required>Y</Required>
+                    <Mask>/^[^\r\n]{1,256}$/u</Mask>
+                    <ValidationMessage>Enter the password (1 to 256 characters, no line breaks).</ValidationMessage>
+                </password>
+                <ca type="CertificateField">
+                    <type>ca</type>
+                    <BlankDesc>Do not validate the server certificate</BlankDesc>
+                </ca>
+                <domain_match type="TextField">
+                    <Mask>/^[0-9a-zA-Z.*-]{0,253}$/u</Mask>
+                    <ValidationMessage>Enter a domain name suffix, such as radius.example.com.</ValidationMessage>
+                </domain_match>
+                <eapol_version type="OptionField">
+                    <Default>2</Default>
+                    <Required>Y</Required>
+                    <OptionValues>
+                        <v1 value="1">1 (802.1X-2001)</v1>
+                        <v2 value="2">2 (802.1X-2004)</v2>
+                    </OptionValues>
+                </eapol_version>
+                <description type="DescriptionField"/>
+            </supplicant>
+        </supplicants>
+    </items>
+</model>

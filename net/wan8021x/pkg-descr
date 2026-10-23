@@ -1,0 +1,9 @@
+Authenticates WAN interfaces against an IEEE 802.1X controlled port, as
+required by some ISPs, campus and enterprise networks, before DHCP or
+static addressing can work.
+
+A wired wpa_supplicant runs on each configured interface (physical or
+VLAN). Supported methods are PEAP and TTLS with MSCHAPv2 (TTLS also with
+PAP), with optional server certificate and domain validation. The port is
+re-authenticated when the link comes back up, and the current EAP state
+and the last failure reason are shown in the GUI.

@@ -1,0 +1,8 @@
+<menu>
+    <Interfaces>
+        <Wan8021x VisibleName="802.1X Supplicant" cssClass="fa fa-key fa-fw">
+            <Settings order="10" url="/ui/wan8021x"/>
+            <Log VisibleName="Log File" order="20" url="/ui/diagnostics/log/core/wan8021x"/>
+        </Wan8021x>
+    </Interfaces>
+</menu>

@@ -1,0 +1,26 @@
+#!/bin/sh
+
+# PROVIDE: wan8021x
+# REQUIRE: NETWORKING
+# KEYWORD: shutdown
+#
+# wan8021x_enable (bool):	Set to YES to run the WAN 802.1X supplicants.
+
+. /etc/rc.subr
+
+name=wan8021x
+rcvar=wan8021x_enable
+
+load_rc_config $name
+
+: "${wan8021x_enable:=NO}"
+
+scriptdir=/usr/local/opnsense/scripts/OPNsense/Wan8021x
+pidfile=/var/run/${name}.pid
+procname=/usr/sbin/daemon
+command=/usr/sbin/daemon
+command_args="-f -r -R 5 -P ${pidfile} -t ${name} ${scriptdir}/wan8021xd.py"
+start_precmd="${scriptdir}/setup.php"
+stop_postcmd="rm -f ${pidfile}"
+
+run_rc_command "$1"

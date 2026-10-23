@@ -1,0 +1,1 @@
+rm -rf /var/etc/wan8021x /var/run/wan8021x /etc/rc.conf.d/wan8021x
