@@ -64,6 +64,15 @@ def log(priority, message):
     syslog.syslog(priority, message)
 
 
+def guarded(sup, func, *args):
+    """Run a per-interface step; an error on one interface must not stop the others."""
+    try:
+        return func(*args)
+    except Exception as e:
+        log(syslog.LOG_ERR, '%s: %s failed: %s' % (sup.interface, func.__name__, e))
+        return None
+
+
 class CtrlClient:
     """Attached client on a wpa_supplicant control socket (unix datagram)."""
 
@@ -123,7 +132,9 @@ class Supplicant:
         self.debug = debug
         self.proc = None
         self.ctrl = CtrlClient(self.device)
+        # deadlines on the monotonic clock, a wall clock step must not delay recovery
         self.next_start = 0
+        self.next_attach = 0
         self.link = None
         self.state = 'starting'
         self.last_error = ''
@@ -140,7 +151,7 @@ class Supplicant:
     def start(self):
         if not self.device_exists():
             self.set_state('waiting', 'device %s does not exist' % self.device)
-            self.next_start = time.time() + RESTART_DELAY
+            self.next_start = time.monotonic() + RESTART_DELAY
             return
         args = [WPA_SUPPLICANT, '-D', 'wired', '-i', self.device, '-c', self.config]
         if self.debug:
@@ -151,15 +162,21 @@ class Supplicant:
         self.set_state('authenticating')
         # the control socket appears shortly after start
         for _ in range(50):
-            if os.path.exists(self.ctrl.path):
-                try:
-                    self.ctrl.connect()
-                    break
-                except OSError:
-                    pass
+            if os.path.exists(self.ctrl.path) and self.attach():
+                break
             time.sleep(0.1)
         else:
-            log(syslog.LOG_WARNING, '%s: control interface not available' % self.interface)
+            log(syslog.LOG_WARNING, '%s: control interface not available, will retry' % self.interface)
+
+    def attach(self):
+        """(Re)connect to the control interface, False (and retry later) on failure."""
+        try:
+            self.ctrl.connect()
+            return True
+        except OSError:
+            self.ctrl.close()
+            self.next_attach = time.monotonic() + RESTART_DELAY
+            return False
 
     def stop(self):
         self.ctrl.close()
@@ -178,11 +195,19 @@ class Supplicant:
             self.last_error = error
 
     def reauthenticate(self, reason):
-        if self.ctrl.sock is None:
+        if self.ctrl.sock is None and not self.attach():
+            log(syslog.LOG_WARNING, '%s: cannot re-authenticate (%s), control interface unavailable' %
+                (self.interface, reason))
             return False
         log(syslog.LOG_NOTICE, '%s: re-authenticating (%s)' % (self.interface, reason))
         self.set_state('authenticating')
-        return self.ctrl.command('REAUTHENTICATE').startswith('OK')
+        try:
+            return self.ctrl.command('REAUTHENTICATE').startswith('OK')
+        except OSError as e:
+            log(syslog.LOG_WARNING, '%s: re-authentication request failed: %s' % (self.interface, e))
+            self.ctrl.close()
+            self.next_attach = time.monotonic() + RESTART_DELAY
+            return False
 
     def fds(self):
         result = []
@@ -209,8 +234,10 @@ class Supplicant:
                 self.on_event(msg)
         except BlockingIOError:
             pass
-        except OSError:
+        except OSError as e:
+            log(syslog.LOG_WARNING, '%s: control interface lost: %s' % (self.interface, e))
             self.ctrl.close()
+            self.next_attach = time.monotonic() + RESTART_DELAY
 
     def on_event(self, msg):
         match = CTRL_EVENT.match(msg)
@@ -243,7 +270,7 @@ class Supplicant:
             log(syslog.LOG_ERR, '%s: %s' % (self.interface, self.last_error))
 
     def check(self, now):
-        """Restart a supplicant that exited."""
+        """Restart a supplicant that exited, reattach a lost control interface (now: monotonic)."""
         if self.proc is not None and self.proc.poll() is not None:
             self.on_output()
             log(syslog.LOG_ERR, '%s: supplicant exited with %d' % (self.interface, self.proc.returncode))
@@ -253,6 +280,9 @@ class Supplicant:
             self.next_start = now + RESTART_DELAY
         if self.proc is None and now >= self.next_start:
             self.start()
+        elif self.proc is not None and self.ctrl.sock is None and now >= self.next_attach:
+            if self.attach():
+                log(syslog.LOG_NOTICE, '%s: control interface reattached' % self.interface)
 
     def status(self):
         result = {
@@ -300,7 +330,7 @@ class Daemon:
             up = oper == 'UP'
             if up and sup.link is False:
                 sup.link = True
-                sup.reauthenticate('link up')
+                guarded(sup, sup.reauthenticate, 'link up')
             elif not up and sup.link is not False:
                 sup.link = False
                 log(syslog.LOG_NOTICE, '%s: link down' % sup.interface)
@@ -323,9 +353,21 @@ class Daemon:
     def run(self):
         signal.signal(signal.SIGTERM, self.stop)
         signal.signal(signal.SIGINT, self.stop)
-        self.start_monitor()
-        for sup in self.supplicants.values():
-            sup.start()
+        try:
+            self.start_monitor()
+            for sup in self.supplicants.values():
+                guarded(sup, sup.start)
+            self.loop()
+        finally:
+            # never leave supplicants behind: a restarted daemon would race them for the device
+            for sup in self.supplicants.values():
+                guarded(sup, sup.stop)
+            if self.monitor is not None:
+                self.monitor.terminate()
+            if os.path.exists(STATUS_FILE):
+                os.unlink(STATUS_FILE)
+
+    def loop(self):
         while self.running:
             fds = {self.monitor.stdout: None}
             for sup in self.supplicants.values():
@@ -340,20 +382,15 @@ class Daemon:
                 if sup is None:
                     self.on_monitor()
                 elif sup.proc is not None and fd is sup.proc.stdout:
-                    sup.on_output()
+                    guarded(sup, sup.on_output)
                 else:
-                    sup.on_ctrl()
+                    guarded(sup, sup.on_ctrl)
             if self.monitor.poll() is not None:
                 self.start_monitor()
-            now = time.time()
+            now = time.monotonic()
             for sup in self.supplicants.values():
-                sup.check(now)
+                guarded(sup, sup.check, now)
             self.write_status()
-        for sup in self.supplicants.values():
-            sup.stop()
-        self.monitor.terminate()
-        if os.path.exists(STATUS_FILE):
-            os.unlink(STATUS_FILE)
 
 
 def main():

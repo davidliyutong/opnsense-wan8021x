@@ -35,9 +35,23 @@ class SettingsController extends ApiMutableModelControllerBase
     protected static $internalModelName = 'wan8021x';
     protected static $internalModelClass = '\OPNsense\Wan8021x\Wan8021x';
 
+    /**
+     * The grid serializes raw field values, which would expose the write-only password, and
+     * searches all listed fields, which would allow guessing it. Name the fields explicitly and
+     * strip the password from the rows.
+     */
     public function searchSupplicantAction()
     {
-        return $this->searchBase('supplicants.supplicant');
+        $fields = [
+            'enabled', 'interface', 'description', 'eap_method', 'phase2', 'identity',
+            'anonymous_identity', 'ca', 'domain_match', 'eapol_version',
+        ];
+        $result = $this->searchBase('supplicants.supplicant', $fields);
+        foreach ($result['rows'] as &$row) {
+            unset($row['password'], $row['%password']);
+        }
+        unset($row);
+        return $result;
     }
 
     public function getSupplicantAction($uuid = null)

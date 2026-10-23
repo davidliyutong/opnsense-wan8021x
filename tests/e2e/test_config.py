@@ -73,3 +73,13 @@ def test_log_lines_not_double_prefixed(plugin):
     logs = vm_sh("cat /var/log/wan8021x/*.log")
     assert "CTRL-EVENT-EAP-SUCCESS" in logs
     assert "vtnet1: vtnet1:" not in logs.split("starting supplicant")[-1]
+
+
+def test_password_not_in_search_or_model(plugin):
+    plugin.configure()
+    rows = vmlib.api("GET", "wan8021x/settings/search_supplicant")["rows"]
+    assert rows and all("password" not in row and "%password" not in row for row in rows)
+    assert "alice-secret" not in str(vmlib.api("GET", "wan8021x/settings/get"))
+    # the password must not be usable as a search oracle either
+    found = vmlib.api("GET", "wan8021x/settings/search_supplicant?searchPhrase=alice-secret")["rows"]
+    assert found == []

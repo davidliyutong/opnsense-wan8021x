@@ -41,25 +41,31 @@ def serial(cmd):
     return int(con.p.match.group(1))
 
 
+def copy_tar(tar_args, dest, timeout=300):
+    """tar on this side | ssh tar -x into dest on the VM, both ends supervised."""
+    tar = subprocess.Popen(["tar"] + tar_args, stdout=subprocess.PIPE)
+    ssh = subprocess.Popen(vmlib.ssh_base() + [f"rm -rf {dest} && mkdir -p {dest} && tar -C {dest} -xf -"],
+                           stdin=tar.stdout)
+    # only ssh may hold the read end, so tar gets SIGPIPE instead of blocking if ssh dies early
+    tar.stdout.close()
+    try:
+        ssh.wait(timeout)
+        tar.wait(timeout)
+    finally:
+        for proc in (ssh, tar):
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+    if ssh.returncode or tar.returncode:
+        raise RuntimeError(f"copying to {dest} failed (tar {tar.returncode}, ssh {ssh.returncode})")
+
+
 def sync_tree(plugin):
     """Copy the upstream build glue + the plugin directory to the VM (tar over ssh, no rsync needed)."""
-    root = vmlib.ROOT
-    tar = subprocess.Popen(
-        ["tar", "-C", root, "-chf", "-", "--exclude=.git", "--exclude=__pycache__",
-         "Mk", "Templates", "Scripts", "Keywords", plugin],
-        stdout=subprocess.PIPE)
-    r = subprocess.run(vmlib.ssh_base() + [f"rm -rf {VM_TREE} && mkdir -p {VM_TREE} && tar -C {VM_TREE} -xf -"],
-                       stdin=tar.stdout)
-    tar.wait()
-    if r.returncode or tar.returncode:
-        raise RuntimeError("copying the source tree failed")
-    tar = subprocess.Popen(["tar", "-C", os.path.join(root, "vendor", "core"), "-cf", "-", "Mk", "Scripts",
-                            "ruleset.xml", "contrib/parallel-lint", "src/opnsense/mvc/app/models"], stdout=subprocess.PIPE)
-    r = subprocess.run(vmlib.ssh_base() + [f"rm -rf {VM_CORE} && mkdir -p {VM_CORE} && tar -C {VM_CORE} -xf -"],
-                       stdin=tar.stdout)
-    tar.wait()
-    if r.returncode or tar.returncode:
-        raise RuntimeError("copying the core build glue failed")
+    copy_tar(["-C", vmlib.ROOT, "-chf", "-", "--exclude=.git", "--exclude=__pycache__",
+              "Mk", "Templates", "Scripts", "Keywords", plugin], VM_TREE)
+    copy_tar(["-C", os.path.join(vmlib.ROOT, "vendor", "core"), "-cf", "-", "Mk", "Scripts", "ruleset.xml",
+              "contrib/parallel-lint", "src/opnsense/mvc/app/models"], VM_CORE)
 
 
 def make(plugin, target):
