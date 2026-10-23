@@ -70,6 +70,45 @@ make test      # run e2e against the current VM (filter with TESTARGS="-k vlan")
 make check     # lint + reset + deploy + test, a full run from a clean state
 ```
 
+## CI on GitHub and Locally with act
+
+`.github/workflows/` holds three workflows: `ci.yml` (every push and pull
+request), `build.yml` (reusable: upstream `make lint` + `make package` in a
+FreeBSD VM via `vmactions/freebsd-vm`) and `release.yml` (`v*` tags).
+
+```
+make ci-local                    # ci.yml under act, on a clean clone of HEAD
+make ci-local ACTARGS="-j lint"  # one job only
+tools/ci-local.sh -W .github/workflows/release.yml -e EVENT.json -j build
+                                 # release build; EVENT.json: {"ref":"refs/tags/v0.1"}
+```
+
+`tools/ci-local.sh` clones HEAD (uncommitted changes are not tested) to
+`.cache/act/work/repo`, builds the job image `env/act/Dockerfile` (the
+catthehacker ubuntu-24.04 image plus rsync, with the runner home at
+`.cache/act` so `vmactions/freebsd-vm` finds `$HOME/work` like on a GitHub
+runner) and passes `/dev/kvm` through. Artifacts land in
+`.cache/act/artifacts`. Run the publish job of `release.yml` on GitHub only.
+
+### Resource limits
+
+Job containers are capped like a GitHub-hosted `ubuntu-latest` runner for
+private repositories: 2 CPU, 8 GB RAM, no swap (`--cpus=2 --memory=8g
+--memory-swap=8g`). Public repositories get 4 CPU / 16 GB. Both have 14 GB of
+SSD, which cannot be capped with overlay2, so disk use is measured instead.
+
+Measured with act 0.2.88 on 2026-10-24 (cgroup v2 of the job container,
+sampled every 5 s):
+
+| Job | Wall time | CPU | Memory | Disk |
+|---|---|---|---|---|
+| Lint and format | ~10 s (+~30 s for an uncached dev image build) | <1 core | job container 37 MB; the dev image (300 MB) builds in the host docker daemon, outside the cap | 300 MB image |
+| FreeBSD lint + package | ~1.5–2 min | 2 cores saturated while the VM boots and installs packages, ~70 CPU-s in total | anon peak 3.8 GiB (QEMU guest, configured with 6 GiB), page cache ~3.8 GiB; no OOM kill, `memory.max` never hit | ~4.4 GB peak (FreeBSD 15.1 image download + extracted 3.5 GB qcow2) |
+
+The workspace synced into the VM is ~230 MB (mostly `vendor/core`). The
+lint job uses the host docker socket, so its `dev` container and image build
+are not limited by the caps.
+
 ## Differences from a Real Switch
 
 * Port state is emulated with nftables, and only the direction from the VM to the authenticator is filtered.
