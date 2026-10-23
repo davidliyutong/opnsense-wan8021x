@@ -1,3 +1,5 @@
+English | [简体中文](README.zh-CN.md)
+
 # os-wan8021x — IEEE 802.1X supplicant for OPNsense WAN interfaces
 
 Some ISPs, campus and enterprise networks put the uplink behind an 802.1X
@@ -72,7 +74,7 @@ all inputs (OPNsense image + SHA256, base image digest, Debian snapshot,
 phpcs) are pinned in `env/versions.env` and the Dockerfiles.
 
 ```sh
-git clone --recurse-submodules <this repo>   # or: git submodule update --init
+git clone --recurse-submodules https://github.com/davidliyutong/opnsense-wan8021x.git
 make tools            # build the local images
 make image golden     # download + verify OPNsense 26.7 nano, provision the golden disk (~1 min, once)
 make reset            # fresh VM from golden + authenticator (~20 s)
@@ -120,8 +122,6 @@ See [docs/ROADMAP.md](docs/ROADMAP.md).
   wpa_supplicant has no option to change it. Use the interface's own
   promiscuous mode and MAC spoofing settings where an authenticator needs them.
 * Tested against hostapd's EAP server only, not a real RADIUS server or a real switch.
-
-Docs under `docs/` other than this README are still in Chinese.
 
 ## License
 

@@ -1,13 +1,15 @@
-# spikes
+English | [简体中文](README.zh-CN.md)
 
-M2 阶段在测试 VM 内手工运行的验证脚本，结论见 `docs/research.md`。
+# Spikes
+
+Validation scripts run by hand inside the test VM during the M2 phase; the conclusions are in [docs/research.md](../docs/research.md).
 
 ```
 cat spikes/s3-vlan.sh | tools/bin/vm-ssh 'cat > /root/s3.sh'
 tools/bin/vm-ssh 'sh /root/s3.sh' </dev/null
 ```
 
-S1 用到的 `/tmp/spike/wan.conf`：
+The `/tmp/spike/wan.conf` used by S1:
 
 ```
 ctrl_interface=/var/run/spike
