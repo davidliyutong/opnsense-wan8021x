@@ -37,7 +37,7 @@ find "$src" -name '*.xml' -exec xmllint --noout {} + || fail
 
 step "shellcheck"
 shellcheck -s sh -e SC1091,SC2034 "$src/etc/rc.d/"* || fail
-shellcheck -s sh tools/lint.sh tools/stage.sh env/auth/authctl.sh env/auth/portctl.sh env/auth/gen-certs.sh \
+shellcheck -s sh tools/lint.sh tools/stage.sh tools/ci-local.sh env/auth/authctl.sh env/auth/portctl.sh env/auth/gen-certs.sh \
 	env/auth/authctl-sock.sh env/vm/entrypoint.sh env/apt-snapshot.sh tools/bin/vm-ssh || fail
 shellcheck -s bash env/auth/entrypoint.sh env/auth/run.sh || fail
 
