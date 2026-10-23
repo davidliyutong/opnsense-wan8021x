@@ -1,0 +1,6 @@
+# Phase 1: anything may start PEAP or TTLS (anonymous outer identity allowed)
+*		PEAP,TTLS
+
+# Phase 2 users
+"alice"		MSCHAPV2,TTLS-MSCHAPV2,TTLS-PAP	"alice-secret"	[2]
+"bob"		MSCHAPV2,TTLS-MSCHAPV2		"bob-secret"	[2]

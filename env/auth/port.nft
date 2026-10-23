@@ -1,0 +1,15 @@
+# Emulates the switch port state: until the supplicant MAC is authorized on a
+# given port, only EAPOL (0x888e) is accepted from the VM.
+table netdev wan8021x {
+	set auth_untagged { type ether_addr; }
+	set auth_v100 { type ether_addr; }
+
+	chain ingress {
+		type filter hook ingress device "tap-wan" priority 0; policy accept;
+		ether type 0x888e counter accept
+		ether type 8021q vlan type 0x888e counter accept
+		ether type 8021q vlan id 100 ether saddr @auth_v100 counter accept
+		ether type != 8021q ether saddr @auth_untagged counter accept
+		counter drop
+	}
+}

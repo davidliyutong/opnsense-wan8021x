@@ -1,0 +1,3 @@
+[submodule "vendor/opnsense-plugins"]
+	path = vendor/opnsense-plugins
+	url = https://github.com/opnsense/plugins

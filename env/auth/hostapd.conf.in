@@ -1,0 +1,14 @@
+interface=@IFACE@
+driver=wired
+ctrl_interface=/run/hostapd
+logger_stdout=-1
+logger_stdout_level=@LOGLEVEL@
+ieee8021x=1
+eapol_version=2
+use_pae_group_addr=@PAE@
+eap_reauth_period=@REAUTH@
+eap_server=1
+eap_user_file=/etc/authenv/eap_user
+ca_cert=@PKI@/ca.crt
+server_cert=@PKI@/server.crt
+private_key=@PKI@/server.key

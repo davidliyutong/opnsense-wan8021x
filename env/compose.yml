@@ -1,0 +1,52 @@
+name: wan8021x
+
+x-build: &build
+  context: ..
+  args:
+    DEBIAN_IMAGE: ${DEBIAN_IMAGE}
+    DEBIAN_SNAPSHOT: ${DEBIAN_SNAPSHOT}
+    HOST_UID: ${HOST_UID:-1000}
+    HOST_GID: ${HOST_GID:-1000}
+
+services:
+  vm:
+    image: wan8021x/vm:local
+    build: { <<: *build, dockerfile: env/vm/Dockerfile }
+    init: true
+    devices: [/dev/kvm, /dev/net/tun]
+    cap_add: [NET_ADMIN]
+    environment:
+      VM_DISK: ${VM_DISK:-vm/overlay.qcow2}
+      OPNSENSE_VERSION: ${OPNSENSE_VERSION}
+      OPNSENSE_IMAGE: ${OPNSENSE_IMAGE}
+      OPNSENSE_SHA256: ${OPNSENSE_SHA256}
+      HOST_UID: ${HOST_UID:-1000}
+    volumes: [../.cache:/cache]
+    ports:
+      - 127.0.0.1:${GUI_PORT:-18443}:443
+      - 127.0.0.1:${SSH_PORT:-12222}:22
+
+  auth:
+    image: wan8021x/auth:local
+    build: { <<: *build, dockerfile: env/auth/Dockerfile }
+    network_mode: service:vm
+    cap_add: [NET_ADMIN]
+    environment:
+      AUTH_LOGLEVEL: ${AUTH_LOGLEVEL:-1}
+      AUTH_REAUTH: ${AUTH_REAUTH:-3600}
+      AUTH_PAE_GROUP: ${AUTH_PAE_GROUP:-1}
+    volumes: [../.cache:/cache]
+    depends_on: [vm]
+    restart: on-failure
+
+  dev:
+    image: wan8021x/dev:local
+    build: { <<: *build, dockerfile: env/dev/Dockerfile }
+    profiles: [tools]
+    network_mode: host
+    user: ${HOST_UID:-1000}:${HOST_GID:-1000}
+    environment:
+      HOME: /home/dev
+      SSH_PORT: ${SSH_PORT:-12222}
+      GUI_PORT: ${GUI_PORT:-18443}
+    volumes: [..:/src]
