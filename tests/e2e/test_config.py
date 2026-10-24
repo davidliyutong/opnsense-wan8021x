@@ -26,6 +26,12 @@ def test_one_supplicant_per_interface(plugin):
     assert "supplicant.interface" in r["validations"]
 
 
+def test_domain_wildcard_rejected(plugin, ca_refs):
+    r = plugin.add(ca=ca_refs["ca"], domain_match="*.example.test")
+    assert r["result"] == "failed"
+    assert "supplicant.domain_match" in r["validations"]
+
+
 def test_line_breaks_rejected(plugin):
     r = plugin.add(identity="alice\nnetwork={")
     assert r["result"] == "failed"
@@ -83,3 +89,14 @@ def test_password_not_in_search_or_model(plugin):
     # the password must not be usable as a search oracle either
     found = vmlib.api("GET", "wan8021x/settings/search_supplicant?searchPhrase=alice-secret")["rows"]
     assert found == []
+
+
+def test_hooks_are_callable():
+    """Every function the plugin registers with core runs without a fatal error (core swallows
+    them at runtime, e.g. a helper that no longer exists in this OPNsense release)."""
+    out = vm_sh("""php -r 'require_once "config.inc"; require_once "util.inc";
+        require_once "plugins.inc.d/wan8021x.inc";
+        wan8021x_services(); wan8021x_syslog(); wan8021x_enabled();
+        foreach (wan8021x_configure() as $tasks) { foreach ($tasks as $task) { explode(":", $task)[0](false); } }
+        echo "hooks ok";' 2>&1""")
+    assert "hooks ok" in out and "Fatal" not in out, out

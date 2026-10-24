@@ -40,7 +40,39 @@ function wan8021x_configure()
 {
     return [
         'early' => ['wan8021x_configure_do'],
+        /* runs after every interface_configure(), e.g. a changed assignment */
+        'dhcp' => ['wan8021x_configure_devices'],
     ];
+}
+
+/*
+ * Follow interface reassignments (WAN moved to another NIC or VLAN): restart
+ * only when the interface -> device mapping differs from what is running, as
+ * this hook also fires on every link up.
+ */
+function wan8021x_configure_devices($verbose = false)
+{
+    /* only follow a running service; starting and stopping belong to the service itself */
+    $wanted = (new \OPNsense\Wan8021x\Wan8021x())->activeDevices();
+    if (empty($wanted) || !isvalidpid('/var/run/wan8021x.pid')) {
+        return;
+    }
+
+    $running = [];
+    $index = json_decode(@file_get_contents('/var/etc/wan8021x/supplicants.json') ?: '[]', true);
+    foreach ($index['supplicants'] ?? [] as $entry) {
+        $running[$entry['interface']] = $entry['device'];
+    }
+    ksort($running);
+
+    /* devices that do not resolve are not started, compare like with like */
+    if (array_filter($wanted) == $running) {
+        return;
+    }
+
+    service_log('Restarting WAN 802.1X supplicant for changed interfaces...', $verbose);
+    mwexecf('/usr/local/etc/rc.d/wan8021x restart');
+    service_log("done.\n", $verbose);
 }
 
 function wan8021x_configure_do($verbose = false)
@@ -50,7 +82,7 @@ function wan8021x_configure_do($verbose = false)
     }
 
     service_log('Starting WAN 802.1X supplicant...', $verbose);
-    mwexec('/usr/local/etc/rc.d/wan8021x restart');
+    mwexecf('/usr/local/etc/rc.d/wan8021x restart');
     service_log("done.\n", $verbose);
 }
 

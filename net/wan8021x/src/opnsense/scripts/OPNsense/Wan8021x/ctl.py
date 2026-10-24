@@ -31,13 +31,11 @@
 """
 
 import json
-import os
-import re
-import socket
 import sys
 
-CTRL_DIR = '/var/run/wan8021x'
-STATUS_FILE = os.path.join(CTRL_DIR, 'status.json')
+# nothing may be written next to the packaged files, it would survive package removal
+sys.dont_write_bytecode = True
+from wan8021x_lib import CtrlClient, load_status, parse_status  # noqa: E402
 
 # wpa_cli status keys passed on to the GUI
 STATUS_KEYS = {
@@ -47,52 +45,44 @@ STATUS_KEYS = {
 }
 
 
-def ctrl_command(device, cmd):
-    local = os.path.join(CTRL_DIR, '.ctl-%s-%d' % (device, os.getpid()))
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-    try:
-        sock.bind(local)
-        sock.connect(os.path.join(CTRL_DIR, device))
-        sock.settimeout(3)
-        sock.send(cmd.encode())
-        return sock.recv(16384).decode(errors='replace')
-    finally:
-        sock.close()
-        os.unlink(local)
-
-
-def load_status():
-    try:
-        with open(STATUS_FILE) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return []
+def overall(row):
+    """The daemon's view wins: after a cable pull wpa_supplicant still says Authorized
+    although the switch has reset the port."""
+    if row['state'] == 'authenticated' and row.get('port') == 'Authorized':
+        return 'authorized'
+    if row['state'] in ('failed', 'stopped'):
+        return 'failed'
+    return 'pending'
 
 
 def supplicants():
     rows = load_status()
     for row in rows:
         try:
-            for line in ctrl_command(row['device'], 'STATUS').splitlines():
-                key, _, value = line.partition('=')
-                if key == 'selectedMethod':
-                    # "25 (EAP-PEAP)" -> "PEAP"
-                    match = re.search(r'\((?:EAP-)?([^)]+)\)', value)
-                    row['method'] = match.group(1) if match else value
-                elif key in STATUS_KEYS:
-                    row[STATUS_KEYS[key]] = value
-                elif key.endswith('Phase2 method'):
-                    row['phase2'] = value
-        except OSError:
-            row['port'] = ''
+            status = parse_status(CtrlClient(row['device']).command('STATUS'))
+        except OSError as e:
+            status = {}
+            row['ctrl_error'] = str(e)
+        for key, name in STATUS_KEYS.items():
+            row[name] = status.get(key, '')
+        # "25 (EAP-PEAP)" -> "PEAP"
+        method = status.get('selectedMethod', '')
+        row['method'] = method.split('(')[-1].rstrip(')').removeprefix('EAP-') if '(' in method else method
+        row['phase2'] = next((v for k, v in status.items() if k.endswith('Phase2 method')), '')
+        row['status'] = overall(row)
     print(json.dumps(rows))
 
 
 def reauthenticate(interface):
     for row in load_status():
         if row['interface'] == interface:
-            print(ctrl_command(row['device'], 'REAUTHENTICATE').strip())
-            return 0
+            try:
+                print(CtrlClient(row['device']).command('REAUTHENTICATE').strip())
+                return 0
+            except OSError as e:
+                # configd drops the output of a failing script, report through the text
+                print('failed: %s' % e)
+                return 0
     print('unknown interface')
     return 1
 

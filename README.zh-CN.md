@@ -77,14 +77,14 @@ GUI：https://127.0.0.1:18443（root / opnsense，自签名证书）；ssh：`ma
                               vtnet0 = LAN (QEMU user net, management)
                               vtnet1 = WAN ── tap-wan ──┐
  auth container (same netns):                           │
-   hostapd -D wired on tap-wan and tap-wan.100 (VLAN 100), built-in EAP server
+   hostapd -D wired on tap-wan, tap-wan.100 and tap-wan.200 (VLANs), built-in EAP server
    nftables: only EAPOL passes until hostapd authorizes the MAC
-   dnsmasq: 172.31.0.0/24 untagged, 172.31.100.0/24 on VLAN 100
+   dnsmasq: 172.31.0.0/24 untagged, 172.31.100.0/24 and 172.31.200.0/24 on VLAN 100/200
 ```
 
 测试账号：`alice` / `alice-secret`（PEAP、TTLS-MSCHAPv2、TTLS-PAP），`bob` / `bob-secret`，以及一个用户名含反斜杠和 UTF-8 字符、密码含引号的用户（见 `env/auth/eap_user`）。认证端（authenticator）可以拔掉虚拟机的网线、重置端口并报告已授权的 MAC（`authctl`）；测试通过 `.cache/run/authctl.sock` 访问它。详见 [docs/testenv.zh-CN.md](docs/testenv.zh-CN.md)。
 
-28 个端到端测试覆盖了：所有认证方式、错误密码、伪造 CA 与域名不匹配、特殊字符、链路中断、手动重新认证、supplicant 崩溃或卡死、VLAN 上联、同时使用两个接口、重启、升级与卸载、输入校验、敏感信息保护以及 GUI 页面。
+33 个端到端测试覆盖了：所有认证方式、错误密码、伪造 CA 与域名不匹配、特殊字符、链路中断、手动重新认证、supplicant 崩溃、卡死或无法启动、链路断开时启动服务、VLAN 上联、两个 VLAN 同时认证、接口重新分配、重启、升级与卸载、输入校验、敏感信息保护以及 GUI 页面。
 
 ## 状态与限制
 

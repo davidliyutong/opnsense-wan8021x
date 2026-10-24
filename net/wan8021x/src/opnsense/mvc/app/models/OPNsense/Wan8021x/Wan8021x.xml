@@ -64,8 +64,8 @@
                     <BlankDesc>Do not validate the server certificate</BlankDesc>
                 </ca>
                 <domain_match type="TextField">
-                    <Mask>/^[0-9a-zA-Z.*-]{0,253}$/u</Mask>
-                    <ValidationMessage>Enter a domain name suffix, such as radius.example.com.</ValidationMessage>
+                    <Mask>/^[0-9a-zA-Z.-]{0,253}$/u</Mask>
+                    <ValidationMessage>Enter a domain name suffix such as radius.example.com, without wildcards.</ValidationMessage>
                 </domain_match>
                 <eapol_version type="OptionField">
                     <Default>2</Default>

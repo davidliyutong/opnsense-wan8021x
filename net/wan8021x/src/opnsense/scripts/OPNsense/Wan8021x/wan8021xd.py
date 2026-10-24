@@ -35,7 +35,8 @@
     The FreeBSD wired driver does not notice link changes: after a cable
     pull the switch resets the port to unauthorized while the supplicant still
     believes it is authenticated. Link state is therefore followed through
-    "route -n monitor" and a link up triggers a re-authentication.
+    "route -n monitor" and a link up triggers a re-authentication, which is
+    retried until the supplicant accepts it.
 """
 
 import json
@@ -49,11 +50,18 @@ import sys
 import syslog
 import time
 
-CONF_DIR = '/var/etc/wan8021x'
-CTRL_DIR = '/var/run/wan8021x'
-STATUS_FILE = os.path.join(CTRL_DIR, 'status.json')
+# nothing may be written next to the packaged files, it would survive package removal
+sys.dont_write_bytecode = True
+from wan8021x_lib import CTRL_DIR, INDEX_FILE, STATUS_FILE, CtrlClient, parse_status  # noqa: E402
+
 WPA_SUPPLICANT = '/usr/local/sbin/wpa_supplicant'
 RESTART_DELAY = 5
+ATTACH_RETRY = 1
+# After an EAPOL-Start, start over when the exchange has not begun (lost Start, common at
+# link up) or not finished (lost frame mid-way) in time, instead of waiting for
+# wpa_supplicant's own 30s startPeriod/authPeriod.
+EAP_START_TIMEOUT = 10
+EAP_RESULT_TIMEOUT = 20
 
 # "add/repl iface iface#2 vtnet1 admin UP oper DOWN mtu 1500"
 IFACE_EVENT = re.compile(r'\biface#\d+\s+(\S+)\s+admin\s+(\S+)\s+oper\s+(\S+)')
@@ -73,56 +81,6 @@ def guarded(sup, func, *args):
         return None
 
 
-class CtrlClient:
-    """Attached client on a wpa_supplicant control socket (unix datagram)."""
-
-    def __init__(self, device):
-        self.path = os.path.join(CTRL_DIR, device)
-        self.local = os.path.join(CTRL_DIR, '.cli-%s-%d' % (device, os.getpid()))
-        self.sock = None
-
-    def connect(self):
-        self.close()
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-        sock.bind(self.local)
-        sock.connect(self.path)
-        sock.settimeout(2)
-        sock.send(b'ATTACH')
-        if not sock.recv(4096).startswith(b'OK'):
-            sock.close()
-            raise OSError('ATTACH refused')
-        sock.setblocking(False)
-        self.sock = sock
-
-    def command(self, cmd):
-        """Send a command on a separate socket, unsolicited events stay on the attached one."""
-        local = self.local + '.cmd'
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-        try:
-            if os.path.exists(local):
-                os.unlink(local)
-            sock.bind(local)
-            sock.connect(self.path)
-            sock.settimeout(3)
-            sock.send(cmd.encode())
-            return sock.recv(16384).decode(errors='replace')
-        finally:
-            sock.close()
-            if os.path.exists(local):
-                os.unlink(local)
-
-    def close(self):
-        if self.sock is not None:
-            try:
-                self.sock.send(b'DETACH')
-            except OSError:
-                pass
-            self.sock.close()
-            self.sock = None
-        if os.path.exists(self.local):
-            os.unlink(self.local)
-
-
 class Supplicant:
     def __init__(self, entry, debug):
         self.interface = entry['interface']
@@ -132,9 +90,14 @@ class Supplicant:
         self.debug = debug
         self.proc = None
         self.ctrl = CtrlClient(self.device)
+        self.attached_before = False
         # deadlines on the monotonic clock, a wall clock step must not delay recovery
         self.next_start = 0
         self.next_attach = 0
+        self.next_reauth = 0
+        self.reauth_pending = None
+        self.kicked_at = 0
+        self.eap_started = False
         self.link = None
         self.state = 'starting'
         self.last_error = ''
@@ -148,11 +111,19 @@ class Supplicant:
         except OSError:
             return False
 
+    def link_state(self):
+        """True/False from the media status, None when the device does not report one."""
+        out = subprocess.run(['/sbin/ifconfig', self.device], capture_output=True, text=True).stdout
+        match = re.search(r'^\s*status: (.+)$', out, re.M)
+        return None if match is None else match.group(1).strip() == 'active'
+
     def start(self):
+        # back off before anything can fail, a broken start must not spin
+        self.next_start = time.monotonic() + RESTART_DELAY
         if not self.device_exists():
             self.set_state('waiting', 'device %s does not exist' % self.device)
-            self.next_start = time.monotonic() + RESTART_DELAY
             return
+        self.link = self.link_state()
         args = [WPA_SUPPLICANT, '-D', 'wired', '-i', self.device, '-c', self.config]
         if self.debug:
             args.append('-d')
@@ -160,23 +131,14 @@ class Supplicant:
         self.proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
         os.set_blocking(self.proc.stdout.fileno(), False)
         self.set_state('authenticating')
-        # the control socket appears shortly after start
-        for _ in range(50):
-            if os.path.exists(self.ctrl.path) and self.attach():
-                break
-            time.sleep(0.1)
-        else:
-            log(syslog.LOG_WARNING, '%s: control interface not available, will retry' % self.interface)
+        self.kicked()
+        # the control socket shows up shortly, check() attaches without blocking the loop
+        self.next_attach = 0
 
-    def attach(self):
-        """(Re)connect to the control interface, False (and retry later) on failure."""
-        try:
-            self.ctrl.connect()
-            return True
-        except OSError:
-            self.ctrl.close()
-            self.next_attach = time.monotonic() + RESTART_DELAY
-            return False
+    def kicked(self):
+        """An EAPOL-Start went out (start or re-authentication), wait for the exchange."""
+        self.kicked_at = time.monotonic()
+        self.eap_started = False
 
     def stop(self):
         self.ctrl.close()
@@ -194,20 +156,55 @@ class Supplicant:
         if error is not None:
             self.last_error = error
 
-    def reauthenticate(self, reason):
-        if self.ctrl.sock is None and not self.attach():
-            log(syslog.LOG_WARNING, '%s: cannot re-authenticate (%s), control interface unavailable' %
-                (self.interface, reason))
-            return False
-        log(syslog.LOG_NOTICE, '%s: re-authenticating (%s)' % (self.interface, reason))
-        self.set_state('authenticating')
+    def awaiting_attach(self):
+        return self.proc is not None and self.ctrl.sock is None
+
+    def attach(self):
+        """(Re)connect to the control interface; on success catch up on what was missed."""
         try:
-            return self.ctrl.command('REAUTHENTICATE').startswith('OK')
+            self.ctrl.attach()
+        except OSError:
+            self.next_attach = time.monotonic() + ATTACH_RETRY
+            return False
+        if self.attached_before:
+            log(syslog.LOG_NOTICE, '%s: control interface reattached' % self.interface)
+        self.attached_before = True
+        self.sync_status()
+        if self.reauth_pending:
+            self.reauthenticate(self.reauth_pending)
+        return True
+
+    def sync_status(self):
+        """Events sent while detached are lost, take the current EAP state instead."""
+        if self.state not in ('starting', 'authenticating'):
+            return
+        status = parse_status(self.ctrl.command('STATUS'))
+        if status.get('EAP state') == 'SUCCESS' and status.get('suppPortStatus') == 'Authorized':
+            self.authenticated_at = self.authenticated_at or int(time.time())
+            self.set_state('authenticated', '')
+        elif status.get('EAP state') == 'FAILURE':
+            self.set_state('failed', self.last_error or 'authentication rejected (check identity and password)')
+
+    def reauthenticate(self, reason):
+        """Ask for a new 802.1X exchange; kept pending and retried until the supplicant accepts."""
+        self.reauth_pending = reason
+        if self.ctrl.sock is None:
+            return False  # check() attaches and then sends it
+        try:
+            accepted = self.ctrl.command('REAUTHENTICATE').startswith('OK')
         except OSError as e:
             log(syslog.LOG_WARNING, '%s: re-authentication request failed: %s' % (self.interface, e))
             self.ctrl.close()
-            self.next_attach = time.monotonic() + RESTART_DELAY
+            self.next_attach = time.monotonic() + ATTACH_RETRY
             return False
+        if not accepted:
+            self.next_reauth = time.monotonic() + ATTACH_RETRY
+            return False
+        log(syslog.LOG_NOTICE, '%s: re-authenticating (%s)' % (self.interface, reason))
+        self.reauth_pending = None
+        self.set_state('authenticating')
+        self.kicked()
+        return True
 
     def fds(self):
         result = []
@@ -237,7 +234,7 @@ class Supplicant:
         except OSError as e:
             log(syslog.LOG_WARNING, '%s: control interface lost: %s' % (self.interface, e))
             self.ctrl.close()
-            self.next_attach = time.monotonic() + RESTART_DELAY
+            self.next_attach = time.monotonic() + ATTACH_RETRY
 
     def on_event(self, msg):
         match = CTRL_EVENT.match(msg)
@@ -246,6 +243,7 @@ class Supplicant:
         event, args = match.groups()
         self.last_event = event
         if event == 'CTRL-EVENT-EAP-STARTED':
+            self.eap_started = True
             self.set_state('authenticating')
         elif event == 'CTRL-EVENT-EAP-SUCCESS':
             self.authenticated_at = int(time.time())
@@ -269,8 +267,20 @@ class Supplicant:
             self.set_state('failed', 'credentials incomplete: %s missing' % field)
             log(syslog.LOG_ERR, '%s: %s' % (self.interface, self.last_error))
 
+    def on_link(self, up):
+        if up and self.link is False:
+            self.link = True
+            self.reauthenticate('link up')
+        elif not up and self.link is not False:
+            self.link = False
+            log(syslog.LOG_NOTICE, '%s: link down' % self.interface)
+            self.set_state('link down')
+        elif up:
+            self.link = True
+
     def check(self, now):
-        """Restart a supplicant that exited, reattach a lost control interface (now: monotonic)."""
+        """Restart an exited supplicant, reattach a lost control interface, retry a
+        pending re-authentication (now: monotonic)."""
         if self.proc is not None and self.proc.poll() is not None:
             self.on_output()
             log(syslog.LOG_ERR, '%s: supplicant exited with %d' % (self.interface, self.proc.returncode))
@@ -278,14 +288,22 @@ class Supplicant:
             self.proc = None
             self.set_state('stopped', 'supplicant exited unexpectedly')
             self.next_start = now + RESTART_DELAY
-        if self.proc is None and now >= self.next_start:
-            self.start()
-        elif self.proc is not None and self.ctrl.sock is None and now >= self.next_attach:
-            if self.attach():
-                log(syslog.LOG_NOTICE, '%s: control interface reattached' % self.interface)
+        if self.proc is None:
+            if now >= self.next_start:
+                self.start()
+        elif self.ctrl.sock is None:
+            if now >= self.next_attach:
+                self.attach()
+        elif self.reauth_pending and now >= self.next_reauth:
+            self.reauthenticate(self.reauth_pending)
+        elif self.state == 'authenticating' and self.link is not False:
+            if not self.eap_started and now - self.kicked_at >= EAP_START_TIMEOUT:
+                self.reauthenticate('no answer to EAPOL-Start')
+            elif now - self.kicked_at >= EAP_RESULT_TIMEOUT:
+                self.reauthenticate('EAP exchange stalled')
 
     def status(self):
-        result = {
+        return {
             'interface': self.interface,
             'description': self.description,
             'device': self.device,
@@ -296,7 +314,6 @@ class Supplicant:
             'authenticated_at': self.authenticated_at,
             'pid': self.proc.pid if self.proc is not None else None,
         }
-        return result
 
 
 class Daemon:
@@ -325,18 +342,8 @@ class Daemon:
                 continue
             device, _admin, oper = match.groups()
             sup = self.supplicants.get(device)
-            if sup is None:
-                continue
-            up = oper == 'UP'
-            if up and sup.link is False:
-                sup.link = True
-                guarded(sup, sup.reauthenticate, 'link up')
-            elif not up and sup.link is not False:
-                sup.link = False
-                log(syslog.LOG_NOTICE, '%s: link down' % sup.interface)
-                sup.set_state('link down')
-            elif up:
-                sup.link = True
+            if sup is not None:
+                guarded(sup, sup.on_link, oper == 'UP')
 
     def write_status(self):
         status = [s.status() for s in self.supplicants.values()]
@@ -373,8 +380,10 @@ class Daemon:
             for sup in self.supplicants.values():
                 for fd in sup.fds():
                     fds[fd] = sup
+            # poll briefly while a freshly started supplicant has no control interface yet
+            timeout = 0.2 if any(s.awaiting_attach() for s in self.supplicants.values()) else 2
             try:
-                readable, _, _ = select.select(list(fds), [], [], 2)
+                readable, _, _ = select.select(list(fds), [], [], timeout)
             except InterruptedError:
                 continue
             for fd in readable:
@@ -397,7 +406,7 @@ def main():
     syslog.openlog('wan8021x', syslog.LOG_PID, syslog.LOG_DAEMON)
     os.makedirs(CTRL_DIR, mode=0o700, exist_ok=True)
     try:
-        with open(os.path.join(CONF_DIR, 'supplicants.json')) as f:
+        with open(INDEX_FILE) as f:
             index = json.load(f)
     except (OSError, ValueError) as e:
         log(syslog.LOG_ERR, 'cannot read configuration: %s' % e)

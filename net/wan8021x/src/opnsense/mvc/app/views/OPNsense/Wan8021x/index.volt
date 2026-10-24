@@ -51,16 +51,11 @@
             }
         });
 
+        /* row.status merges the daemon state with the supplicant's port status, see ctl.py */
         function stateLabel(row) {
-            let cls = 'default';
-            if (row.port == 'Authorized') {
-                cls = 'success';
-            } else if (row.state == 'failed') {
-                cls = 'danger';
-            } else if (row.state == 'authenticating' || row.state == 'starting') {
-                cls = 'warning';
-            }
-            return $('<span class="label">').addClass('label-' + cls).text(row.port || row.state);
+            const cls = {'authorized': 'success', 'failed': 'danger'}[row.status] || 'warning';
+            return $('<span class="label">').addClass('label-' + cls)
+                .text(row.status == 'authorized' ? row.port : row.state);
         }
 
         function updateStatus() {

@@ -35,7 +35,6 @@
 require_once 'config.inc';
 require_once 'util.inc';
 
-use OPNsense\Core\Config;
 use OPNsense\Wan8021x\Wan8021x;
 
 const CONF_DIR = '/var/etc/wan8021x';
@@ -62,11 +61,13 @@ function ca_pem(string $refid): ?string
 
 @mkdir(CONF_DIR, 0700, true);
 chmod(CONF_DIR, 0700);
+/* supplicants.json is replaced atomically at the end, readers never see it missing */
 foreach (glob(CONF_DIR . '/*') as $file) {
-    @unlink($file);
+    if (basename($file) != 'supplicants.json') {
+        @unlink($file);
+    }
 }
 
-$cfg = Config::getInstance()->object();
 $mdl = new Wan8021x();
 $index = [];
 
@@ -76,8 +77,8 @@ if ($mdl->general->enabled->isEqual('1')) {
             continue;
         }
         $ifname = $sup->interface->getValue();
-        $device = isset($cfg->interfaces->$ifname->if) ? (string)$cfg->interfaces->$ifname->if : '';
-        if ($device == '' || !preg_match('/^[a-zA-Z0-9_.]+$/', $device)) {
+        $device = $mdl->deviceOf($ifname);
+        if ($device == '') {
             syslog(LOG_ERR, "wan8021x: interface {$ifname} has no usable device, skipped");
             continue;
         }
@@ -134,7 +135,8 @@ if ($mdl->general->enabled->isEqual('1')) {
     }
 }
 
-file_put_contents(CONF_DIR . '/supplicants.json', json_encode([
+file_put_contents(CONF_DIR . '/supplicants.json.tmp', json_encode([
     'debug' => $mdl->general->debug->isEqual('1'),
     'supplicants' => $index,
 ], JSON_PRETTY_PRINT) . "\n");
+rename(CONF_DIR . '/supplicants.json.tmp', CONF_DIR . '/supplicants.json');

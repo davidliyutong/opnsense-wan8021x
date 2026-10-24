@@ -18,10 +18,11 @@ built from the Dockerfiles in this repository, and all runtime state lives in `.
  container auth:             │
     hostapd -D wired  on tap-wan       (untagged, PAE multicast 01:80:c2:00:00:03)
     hostapd -D wired  on tap-wan.100   (VLAN 100)
+    hostapd -D wired  on tap-wan.200   (VLAN 200)
     built-in EAP server: PEAP / TTLS, phase2 MSCHAPv2 (TTLS also supports PAP)
     nftables netdev ingress: unauthorized MACs may only send EAPOL (0x888e)
     hostapd_cli -a portctl.sh: AP-STA-CONNECTED/DISCONNECTED → add/remove authorized MAC
-    dnsmasq: 172.31.0.0/24 (untagged), 172.31.100.0/24 (VLAN 100)
+    dnsmasq: 172.31.0.0/24 (untagged), 172.31.100.0/24, 172.31.200.0/24 (VLAN 100/200)
 ```
 
 A few details:

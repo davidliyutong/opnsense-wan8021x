@@ -15,13 +15,14 @@ def test_uninstall_and_reinstall(plugin):
     assert running()
 
     vm_sh(f"cd {TREE} && make package >/dev/null && pkg delete -y {PKG} >/dev/null")
-    wait_for(lambda: not running(), timeout=20, what="daemon and supplicant to stop on removal")
-    leftovers = vm_sh("ls /usr/local/etc/rc.d/wan8021x /usr/local/opnsense/scripts/OPNsense/Wan8021x "
-                      "/usr/local/etc/inc/plugins.inc.d/wan8021x.inc 2>/dev/null || true")
-    assert leftovers.strip() == ""
-
-    # configuration survives in config.xml, reinstalling brings the port back up
-    vm_sh(f"pkg add {TREE}/work/pkg/*.pkg >/dev/null")
+    try:
+        wait_for(lambda: not running(), timeout=20, what="daemon and supplicant to stop on removal")
+        leftovers = vm_sh("ls /usr/local/etc/rc.d/wan8021x /usr/local/opnsense/scripts/OPNsense/Wan8021x "
+                          "/usr/local/etc/inc/plugins.inc.d/wan8021x.inc /var/etc/wan8021x 2>/dev/null || true")
+        assert leftovers.strip() == ""
+    finally:
+        # configuration survives in config.xml, reinstalling brings the port back up
+        vm_sh(f"pkg add {TREE}/work/pkg/*.pkg >/dev/null")
     vm_sh("configctl wan8021x start >/dev/null")
     wait_for(lambda: authorized(), timeout=30, what="authentication after reinstall")
 

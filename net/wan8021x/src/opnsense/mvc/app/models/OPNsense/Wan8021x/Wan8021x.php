@@ -30,6 +30,7 @@ namespace OPNsense\Wan8021x;
 
 use OPNsense\Base\BaseModel;
 use OPNsense\Base\Messages\Message;
+use OPNsense\Core\Config;
 
 class Wan8021x extends BaseModel
 {
@@ -57,6 +58,35 @@ class Wan8021x extends BaseModel
         }
 
         return $messages;
+    }
+
+    /**
+     * @param string $ifname assigned interface (e.g. wan)
+     * @return string its current device (e.g. igb0, vlan01), empty when unassigned or unusable
+     */
+    public function deviceOf(string $ifname): string
+    {
+        $interfaces = Config::getInstance()->object()->interfaces;
+        $device = isset($interfaces->$ifname->if) ? (string)$interfaces->$ifname->if : '';
+        return preg_match('/^[a-zA-Z0-9_.]+$/', $device) ? $device : '';
+    }
+
+    /**
+     * @return array interface => device for every enabled supplicant, empty when the service is off
+     */
+    public function activeDevices(): array
+    {
+        $result = [];
+        if ($this->general->enabled->isEqual('1')) {
+            foreach ($this->supplicants->supplicant->iterateItems() as $supplicant) {
+                if ($supplicant->enabled->isEqual('1')) {
+                    $ifname = $supplicant->interface->getValue();
+                    $result[$ifname] = $this->deviceOf($ifname);
+                }
+            }
+        }
+        ksort($result);
+        return $result;
     }
 
     /**

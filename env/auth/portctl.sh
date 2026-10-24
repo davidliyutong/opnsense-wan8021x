@@ -3,15 +3,16 @@
 case $1 in
 tap-wan) set=auth_untagged ;;
 tap-wan.100) set=auth_v100 ;;
+tap-wan.200) set=auth_v200 ;;
 *) exit 0 ;;
 esac
 case $2 in
 AP-STA-CONNECTED)
-	nft add element netdev wan8021x $set "{ $3 }"
+	nft add element netdev wan8021x "$set" "{ $3 }"
 	echo "[portctl] $1 $3 authorized"
 	;;
 AP-STA-DISCONNECTED)
-	nft delete element netdev wan8021x $set "{ $3 }" 2>/dev/null
+	nft delete element netdev wan8021x "$set" "{ $3 }" 2>/dev/null
 	echo "[portctl] $1 $3 unauthorized"
 	;;
 esac

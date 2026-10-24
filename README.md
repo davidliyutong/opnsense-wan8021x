@@ -96,9 +96,9 @@ ssh: `make ssh`. Ports are set in `env/versions.env`.
                               vtnet0 = LAN (QEMU user net, management)
                               vtnet1 = WAN ── tap-wan ──┐
  auth container (same netns):                           │
-   hostapd -D wired on tap-wan and tap-wan.100 (VLAN 100), built-in EAP server
+   hostapd -D wired on tap-wan, tap-wan.100 and tap-wan.200 (VLANs), built-in EAP server
    nftables: only EAPOL passes until hostapd authorizes the MAC
-   dnsmasq: 172.31.0.0/24 untagged, 172.31.100.0/24 on VLAN 100
+   dnsmasq: 172.31.0.0/24 untagged, 172.31.100.0/24 and 172.31.200.0/24 on VLAN 100/200
 ```
 
 Test accounts: `alice` / `alice-secret` (PEAP, TTLS-MSCHAPv2, TTLS-PAP),
@@ -107,9 +107,10 @@ password with quotes (see `env/auth/eap_user`). The authenticator can pull the
 VM's cable, reset ports and report authorized MACs (`authctl`); the tests reach
 it via `.cache/run/authctl.sock`. Details: [docs/testenv.md](docs/testenv.md).
 
-The 28 end-to-end tests cover all methods, wrong password, rogue CA and
-domain mismatch, special characters, link loss, manual re-authentication, crashed or hung
-supplicants, VLAN uplinks, two interfaces at once, reboot, upgrade and uninstall, validation,
+The 33 end-to-end tests cover all methods, wrong password, rogue CA and
+domain mismatch, special characters, link loss, manual re-authentication, crashed, hung or
+unstartable supplicants, starting with the link down, VLAN uplinks, two VLANs at once,
+interface reassignment, reboot, upgrade and uninstall, validation,
 secret handling and the GUI page.
 
 ## Status and limitations
