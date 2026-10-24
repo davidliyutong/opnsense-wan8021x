@@ -93,7 +93,7 @@ GUI：https://127.0.0.1:18443（root / opnsense，自签名证书）；ssh：`ma
 
 测试账号：`alice` / `alice-secret`（PEAP、TTLS-MSCHAPv2、TTLS-PAP），`bob` / `bob-secret`，以及一个用户名含反斜杠和 UTF-8 字符、密码含引号的用户（见 `env/auth/eap_user`）。认证端（authenticator）可以拔掉虚拟机的网线、重置端口并报告已授权的 MAC（`authctl`）；测试通过 `.cache/run/authctl.sock` 访问它。详见 [docs/testenv.zh-CN.md](docs/testenv.zh-CN.md)。
 
-33 个端到端测试覆盖了：所有认证方式、错误密码、伪造 CA 与域名不匹配、特殊字符、链路中断、手动重新认证、supplicant 崩溃、卡死或无法启动、链路断开时启动服务、VLAN 上联、两个 VLAN 同时认证、接口重新分配、重启、升级与卸载、输入校验、敏感信息保护以及 GUI 页面。
+34 个端到端测试覆盖了：所有认证方式、错误密码、伪造 CA 与域名不匹配、特殊字符、链路中断、手动重新认证、supplicant 崩溃、卡死或无法启动、链路断开时启动服务、VLAN 上联、两个 VLAN 同时认证、接口重新分配、重启、升级与卸载、输入校验、敏感信息保护以及 GUI 页面。
 
 ## 状态与限制
 

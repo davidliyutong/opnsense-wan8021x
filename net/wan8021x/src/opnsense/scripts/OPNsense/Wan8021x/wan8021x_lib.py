@@ -37,10 +37,13 @@ CONF_DIR = '/var/etc/wan8021x'
 CTRL_DIR = '/var/run/wan8021x'
 INDEX_FILE = os.path.join(CONF_DIR, 'supplicants.json')
 STATUS_FILE = os.path.join(CTRL_DIR, 'status.json')
+# the daemon's own request socket in CTRL_DIR, next to the supplicants' (named by device)
+DAEMON_CTRL = 'wan8021xd'
+DAEMON_SOCK = os.path.join(CTRL_DIR, DAEMON_CTRL)
 
 
 class CtrlClient:
-    """Client for one wpa_supplicant control interface (unix datagram socket)."""
+    """Client for one wpa_supplicant control interface, or the daemon's (unix datagram socket)."""
 
     def __init__(self, device):
         self.path = os.path.join(CTRL_DIR, device)

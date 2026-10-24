@@ -125,7 +125,7 @@ password with quotes (see `env/auth/eap_user`). The authenticator can pull the
 VM's cable, reset ports and report authorized MACs (`authctl`); the tests reach
 it via `.cache/run/authctl.sock`. Details: [docs/testenv.md](docs/testenv.md).
 
-The 33 end-to-end tests cover all methods, wrong password, rogue CA and
+The 34 end-to-end tests cover all methods, wrong password, rogue CA and
 domain mismatch, special characters, link loss, manual re-authentication, crashed, hung or
 unstartable supplicants, starting with the link down, VLAN uplinks, two VLANs at once,
 interface reassignment, reboot, upgrade and uninstall, validation,

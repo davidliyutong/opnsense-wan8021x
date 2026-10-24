@@ -26,24 +26,35 @@ done
 nft delete table netdev wan8021x 2>/dev/null || true
 nft -f "$E/port.nft"
 
+pids=()
 dnsmasq --conf-file="$E/dnsmasq.conf" --log-facility=- --keep-in-foreground &
+pids+=($!)
 
 for ifc in tap-wan tap-wan.100 tap-wan.200; do
 	sed -e "s|@IFACE@|$ifc|" -e "s|@PKI@|$PKI|" -e "s|@LOGLEVEL@|$LOGLEVEL|" \
 		-e "s|@REAUTH@|$REAUTH|" -e "s|@PAE@|$PAE|" \
 		"$E/hostapd.conf.in" > "/run/hostapd-$ifc.conf"
 	(hostapd "/run/hostapd-$ifc.conf" 2>&1; echo "hostapd on $ifc exited") | sed -u "s/^/[hostapd $ifc] /" &
+	pids+=($!)
 done
 sleep 2
 for ifc in tap-wan tap-wan.100 tap-wan.200; do
 	hostapd_cli -p /run/hostapd -i "$ifc" -a "$E/portctl.sh" &
+	pids+=($!)
 done
 
 # remote control for the test suite (the dev container has no docker access)
 rm -f /cache/run/authctl.sock
 socat UNIX-LISTEN:/cache/run/authctl.sock,fork,mode=666 EXEC:"$E/authctl-sock.sh" &
+pids+=($!)
 
-# exit (and let compose restart us) if any child dies
-wait -n
-echo "a child process exited, stopping" >&2
-exit 1
+# exit (and let compose restart us) as soon as any child is gone, also one that failed
+# during startup: wait -n would not report a job that ended before it was called
+while sleep 1; do
+	for pid in "${pids[@]}"; do
+		if ! kill -0 "$pid" 2>/dev/null; then
+			echo "child process $pid exited, stopping" >&2
+			exit 1
+		fi
+	done
+done

@@ -1,4 +1,6 @@
 """Authentication against the emulated switch port (hostapd wired, EAP server built in)."""
+import threading
+
 import pytest
 
 import vmlib
@@ -81,7 +83,15 @@ def test_link_loss_reauthenticates(plugin):
     plugin.configure()
     assert_authenticated(plugin)
     plugin_status_before = plugin.status()
-    auth("flap", "3")
+    pull = threading.Thread(target=auth, args=("flap", "6"))
+    pull.start()
+    try:
+        # the supplicant still believes it is authorized, the link loss must win
+        row = wait_for(lambda: (s := plugin.status()) and s["state"] == "link down" and s,
+                       timeout=5, what="link down to be reported")
+        assert row["status"] != "authorized" and row["link"] is False
+    finally:
+        pull.join()
     wait_for(lambda: authorized(), timeout=30, what="re-authentication after link up")
     wait_for(wan_reachable, timeout=30, what="traffic after link up")
     assert plugin.status()["authenticated_at"] > plugin_status_before["authenticated_at"]
