@@ -60,6 +60,11 @@ from wan8021x_lib import CTRL_DIR, DAEMON_SOCK, INDEX_FILE, STATUS_FILE, CtrlCli
 WPA_SUPPLICANT = '/usr/local/sbin/wpa_supplicant'
 RESTART_DELAY = 5
 ATTACH_RETRY = 1
+ATTACH_TIMEOUT = 2
+# Requests to a supplicant block the shared loop, keep them short. One that stops
+# answering on its control interface for HUNG_TIMEOUT is killed and restarted.
+CTRL_TIMEOUT = 1
+HUNG_TIMEOUT = 10
 # After an EAPOL-Start, start over when the exchange has not begun (lost Start, common at
 # link up) or not finished (lost frame mid-way) in time, instead of waiting for
 # wpa_supplicant's own 30s startPeriod/authPeriod. Doubled per consecutive attempt up to
@@ -100,6 +105,8 @@ class Supplicant:
         self.next_start = 0
         self.next_attach = 0
         self.next_reauth = 0
+        self.attach_sent = 0
+        self.detached_at = None
         self.reauth_pending = None
         self.kicked_at = 0
         self.eap_started = False
@@ -140,26 +147,31 @@ class Supplicant:
         self.kicked()
         # the control socket shows up shortly, check() attaches without blocking the loop
         self.next_attach = 0
+        self.detached_at = time.monotonic()
 
     def kicked(self):
         """An EAPOL-Start went out (start or re-authentication), wait for the exchange."""
         self.kicked_at = time.monotonic()
         self.eap_started = False
 
-    def stop(self):
+    def stop(self, kill=False):
+        """kill: for a hung (e.g. stopped) process, which would not act on SIGTERM."""
         self.ctrl.close()
         if self.proc is not None and self.proc.poll() is None:
-            self.proc.terminate()
-            try:
-                self.proc.wait(5)
-            except subprocess.TimeoutExpired:
+            if not kill:
+                self.proc.terminate()
+                try:
+                    self.proc.wait(5)
+                except subprocess.TimeoutExpired:
+                    kill = True
+            if kill:
                 self.proc.kill()
                 self.proc.wait()
         self.proc = None
 
-    def restart(self, reason):
-        log(syslog.LOG_NOTICE, '%s: restarting supplicant (%s)' % (self.interface, reason))
-        self.stop()
+    def restart(self, reason, kill=False):
+        log(syslog.LOG_ERR if kill else syslog.LOG_NOTICE, '%s: restarting supplicant (%s)' % (self.interface, reason))
+        self.stop(kill)
         self.start()
 
     def set_state(self, state, error=None):
@@ -171,31 +183,42 @@ class Supplicant:
         self.state = state
 
     def awaiting_attach(self):
-        return self.proc is not None and self.ctrl.sock is None
+        return self.proc is not None and not self.ctrl.attached
 
     def attach(self):
-        """(Re)connect to the control interface; on success catch up on what was missed."""
+        """(Re)connect to the control interface; on_ctrl() takes the reply."""
         try:
             self.ctrl.attach()
         except OSError:
             self.next_attach = time.monotonic() + ATTACH_RETRY
-            return False
+            return
+        self.attach_sent = time.monotonic()
+
+    def on_attached(self):
+        """Catch up on what was missed while detached."""
+        self.detached_at = None
         if self.attached_before:
             log(syslog.LOG_NOTICE, '%s: control interface reattached' % self.interface)
         self.attached_before = True
         try:
             self.sync_status()
-        except OSError:
-            self.ctrl.close()
-            self.next_attach = time.monotonic() + ATTACH_RETRY
-            return False
+        except OSError as e:
+            self.lost('status request failed: %s' % e)
+            return
         if self.reauth_pending:
             self.reauthenticate(self.reauth_pending)
-        return True
+
+    def lost(self, reason):
+        """The control interface stopped answering, reattach (check() restarts a hung supplicant)."""
+        log(syslog.LOG_WARNING, '%s: %s' % (self.interface, reason))
+        self.ctrl.close()
+        self.next_attach = time.monotonic() + ATTACH_RETRY
+        if self.detached_at is None:
+            self.detached_at = time.monotonic()
 
     def sync_status(self):
         """Events sent while detached are lost, take the current EAP state instead."""
-        status = parse_status(self.ctrl.command('STATUS'))
+        status = parse_status(self.ctrl.command('STATUS', CTRL_TIMEOUT))
         if status.get('EAP state') == 'SUCCESS' and status.get('suppPortStatus') == 'Authorized':
             if self.state != 'authenticated':
                 self.set_state('authenticated', '')
@@ -214,20 +237,18 @@ class Supplicant:
         anywhere else (CONNECTING, AUTHENTICATING, HELD) the supplicant is restarted,
         which begins with an EAPOL-Start."""
         self.reauth_pending = reason
-        if self.ctrl.sock is None:
+        if not self.ctrl.attached:
             # check() attaches and then sends it
             return 'supplicant control interface not attached, re-authentication queued'
         try:
-            pae = parse_status(self.ctrl.command('STATUS')).get('Supplicant PAE state')
+            pae = parse_status(self.ctrl.command('STATUS', CTRL_TIMEOUT)).get('Supplicant PAE state')
             if pae != 'AUTHENTICATED':
                 self.reauth_pending = None
                 self.restart('%s, PAE state %s' % (reason, pae or 'not reported'))
                 return ''
-            accepted = self.ctrl.command('REAUTHENTICATE').startswith('OK')
+            accepted = self.ctrl.command('REAUTHENTICATE', CTRL_TIMEOUT).startswith('OK')
         except OSError as e:
-            log(syslog.LOG_WARNING, '%s: re-authentication request failed: %s' % (self.interface, e))
-            self.ctrl.close()
-            self.next_attach = time.monotonic() + ATTACH_RETRY
+            self.lost('re-authentication request failed: %s' % e)
             return 'supplicant not responding (%s), re-authentication queued' % e
         if not accepted:
             self.next_reauth = time.monotonic() + ATTACH_RETRY
@@ -243,9 +264,7 @@ class Supplicant:
         try:
             self.sync_status()
         except OSError as e:
-            log(syslog.LOG_WARNING, '%s: status request failed: %s' % (self.interface, e))
-            self.ctrl.close()
-            self.next_attach = time.monotonic() + ATTACH_RETRY
+            self.lost('status request failed: %s' % e)
             return
         if self.state == 'authenticating':
             self.retries += 1
@@ -271,15 +290,20 @@ class Supplicant:
 
     def on_ctrl(self):
         try:
-            while True:
+            # on_attached() may restart the supplicant, which closes the socket
+            while self.ctrl.sock is not None:
                 msg = self.ctrl.sock.recv(4096).decode(errors='replace')
-                self.on_event(msg)
+                if self.ctrl.attached:
+                    self.on_event(msg)
+                elif msg.startswith('OK'):
+                    self.ctrl.attached = True
+                    self.on_attached()
+                else:
+                    raise OSError('ATTACH refused')
         except BlockingIOError:
             pass
         except OSError as e:
-            log(syslog.LOG_WARNING, '%s: control interface lost: %s' % (self.interface, e))
-            self.ctrl.close()
-            self.next_attach = time.monotonic() + ATTACH_RETRY
+            self.lost('control interface lost: %s' % e)
 
     def on_event(self, msg):
         match = CTRL_EVENT.match(msg)
@@ -340,9 +364,15 @@ class Supplicant:
         if self.proc is None:
             if now >= self.next_start:
                 self.start()
-        elif self.ctrl.sock is None:
-            if now >= self.next_attach:
-                self.attach()
+        elif not self.ctrl.attached:
+            if now - self.detached_at >= HUNG_TIMEOUT:
+                self.restart('not responding for %ds' % HUNG_TIMEOUT, kill=True)
+            elif self.ctrl.sock is None:
+                if now >= self.next_attach:
+                    self.attach()
+            elif now - self.attach_sent >= ATTACH_TIMEOUT:
+                self.ctrl.close()
+                self.next_attach = now + ATTACH_RETRY
         elif self.reauth_pending and now >= self.next_reauth:
             self.reauthenticate(self.reauth_pending)
         elif self.state == 'authenticating' and self.link is not False:
