@@ -11,8 +11,8 @@ interfaces. This plugin adds one.
   interface, physical or VLAN
 * PEAP or TTLS, inner MSCHAPv2 (TTLS also PAP), optional outer (anonymous) identity
 * Optional server validation against a CA from System → Trust, plus domain suffix matching
-* Starts at boot right after interface configuration (`early` hook); dhclient
-  picks up the lease once the port opens
+* Starts at boot right after interface configuration (`early` hook); obtains a
+  fresh IPv4 DHCP lease on first authorization and authorization recovery, including subnet changes
 * Re-authenticates when the link comes back up (cable pull, switch reboot) and
   restarts a crashed or hung supplicant
 * Status tab with port state, EAP state, method and the last failure reason,
@@ -42,6 +42,13 @@ rc.d/wan8021x ──► daemon(8) ──► wan8021xd.py ─┼─► wpa_suppli
 ```
 
 * `wpa_supplicant` is the one OPNsense itself ships (`/usr/local/sbin`, wired driver).
+* First authorization and recovery from a link loss or authentication failure asynchronously refresh DHCP: stop the interface's
+  core-managed client, remove the old lease and dynamic address, and restart DHCP
+  through core. Static IPv4, configured virtual addresses and IPv6 are preserved.
+  This does not reconfigure the whole interface or restart the supplicant.
+  Periodic and manual re-authentication preserve the lease while the port remains
+  authorized. While the daemon runs, refreshes are limited to once per interface every 30 seconds; a
+  recovery during that interval stays queued until the interval expires.
 * Identities, passwords and domains are written hex encoded, so quotes,
   backslashes and UTF-8 need no escaping.
 * The FreeBSD wired driver does not notice link changes. After a cable pull
@@ -125,14 +132,17 @@ password with quotes (see `env/auth/eap_user`). The authenticator can pull the
 VM's cable, reset ports and report authorized MACs (`authctl`); the tests reach
 it via `.cache/run/authctl.sock`. Details: [docs/testenv.md](docs/testenv.md).
 
-The 41 end-to-end tests cover all methods, wrong password, rogue CA and
+The 45 end-to-end tests cover all methods, wrong password, rogue CA and
 domain mismatch, special characters, link loss (also while the link monitor is gone), manual and
-authenticator-initiated re-authentication, crashed, hung or
+authenticator-initiated re-authentication, replacing an old DHCP lease after an
+authenticated subnet change, preserving DHCP through periodic and manual re-authentication,
+deferring a link recovery's DHCP refresh during the cooldown,
+preserving static IPv4, crashed, hung or
 unstartable supplicants, starting with the link down, failed configuration generation,
 concurrent restarts, an unwritable status file, VLAN uplinks, two VLANs at once,
 interface reassignment (GUI order and saved first), saved but unapplied changes, reboot,
 upgrade and uninstall, validation,
-secret handling and the GUI page.
+secret handling and the GUI page. `make lint-local` also runs supervisor unit tests.
 
 ## Status and limitations
 
@@ -144,6 +154,8 @@ See [docs/ROADMAP.md](docs/ROADMAP.md).
   wpa_supplicant has no option to change it. Use the interface's own
   promiscuous mode and MAC spoofing settings where an authenticator needs them.
 * Tested against hostapd's EAP server only, not a real RADIUS server or a real switch.
+* A subnet change during re-authentication that retains authorization is not
+  detected; that requires a separate network-change signal. Restarting the service resets the DHCP cooldown.
 * When an interface the plugin runs on is moved to another device, the service
   restarts from the saved settings, so plugin changes saved but not yet
   applied take effect with it.

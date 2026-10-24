@@ -26,6 +26,9 @@ python3 -m pycodestyle --max-line-length=120 tools tests env/provision || fail
 step "python syntax"
 find "$src" -name '*.py' -exec python3 -c 'import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]' {} + || fail
 
+step "supervisor unit tests"
+python3 -m unittest discover -s tests/unit -v || fail
+
 step "no direct process execution in PHP (upstream lint-exec, needs git)"
 # the checkout may belong to another uid than the container user (act, CI)
 git -c safe.directory='*' grep --untracked -n -e '[^li][^w>:]exec(' -e '^exec(' -e 'shell_exec(' -e '[^f]passthru(' -e '^passthru(' \

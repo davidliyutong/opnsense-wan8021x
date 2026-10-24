@@ -63,10 +63,14 @@ dev 容器没有 docker 权限。认证端在 `.cache/run/authctl.sock` 上提�
 printf 'authorized\n' | socat - UNIX-CONNECT:.cache/run/authctl.sock
 ```
 
+`authctl preauth MAC` 可临时放行尚未认证的 MAC，让它先获取旧租约；
+`authctl network changed` 把未打 tag 的网段从 `172.31.0.0/24` 切到 `172.31.10.0/24`，不产生链路事件，
+`authctl network default` 则恢复原网段。`tests/e2e/test_dhcp.py` 用这些操作验证认证成功后主动替换旧租约。
+
 ## 测试与检查
 
 ```
-make lint      # dev 容器：php -l、phpcs(core ruleset)、pycodestyle、xmllint、shellcheck；VM：上游 make lint
+make lint      # dev 容器：静态检查与守护进程单元测试；VM：上游 make lint
 make test      # 对当前 VM 运行 e2e（TESTARGS="-k vlan" 可筛选）
 make check     # lint + reset + deploy + test，从干净状态全部跑一遍
 ```

@@ -16,6 +16,7 @@ echo "waiting for tap-wan ..."
 while ! ip link show tap-wan >/dev/null 2>&1; do sleep 1; done
 
 ip link set tap-wan up
+ip addr del 172.31.10.1/24 dev tap-wan 2>/dev/null || true
 ip addr replace 172.31.0.1/24 dev tap-wan
 for vid in 100 200; do
 	ip link add link tap-wan name tap-wan.$vid type vlan id $vid 2>/dev/null || true

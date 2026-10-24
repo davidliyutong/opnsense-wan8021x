@@ -14,7 +14,7 @@
 | M5 e2e | ✅ 24 个用例，`make check` 从全新 VM 跑完约 3 分钟 |
 | M6 打包 | 🟡 `make package` 已可用；尚未提交上游，文档待补（截图、用户手册） |
 
-与原计划的差异：去掉了“认证成功后 interface reconfigure”（S2 证明不需要）；
+与原计划的差异：首次获得授权或授权恢复后异步重新获取 IPv4 DHCP 租约，不执行整个接口的 `interface reconfigure`（S2 的初次获取租约实验未覆盖认证后切换网段，已修正）；保持授权期间的重认证保留租约，并限制刷新频率；
 link 监听用 `route -n monitor` 代替 devd（devd 只执行优先级最高的规则）；
 删除了 promisc 选项（core 接口设置已有）。
 

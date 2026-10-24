@@ -63,10 +63,15 @@ The dev container has no docker access. The authenticator exposes remote calls t
 printf 'authorized\n' | socat - UNIX-CONNECT:.cache/run/authctl.sock
 ```
 
+`authctl preauth MAC` temporarily allows an unauthenticated MAC to obtain an old lease.
+`authctl network changed` switches the untagged subnet from `172.31.0.0/24` to `172.31.10.0/24`
+without a link event; `authctl network default` restores the original subnet.
+`tests/e2e/test_dhcp.py` uses these controls to verify that successful authentication replaces an old lease.
+
 ## Tests and Checks
 
 ```
-make lint      # dev container: php -l, phpcs(core ruleset), pycodestyle, xmllint, shellcheck; VM: upstream make lint
+make lint      # dev container: static checks and supervisor unit tests; VM: upstream make lint
 make test      # run e2e against the current VM (filter with TESTARGS="-k vlan")
 make check     # lint + reset + deploy + test, a full run from a clean state
 ```
