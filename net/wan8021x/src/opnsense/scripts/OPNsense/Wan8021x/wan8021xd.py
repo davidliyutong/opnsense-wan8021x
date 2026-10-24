@@ -58,6 +58,9 @@ sys.dont_write_bytecode = True
 from wan8021x_lib import CTRL_DIR, DAEMON_SOCK, INDEX_FILE, STATUS_FILE, CtrlClient, parse_status  # noqa: E402
 
 WPA_SUPPLICANT = '/usr/local/sbin/wpa_supplicant'
+DHCP_REFRESH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'refresh_dhcp.php')
+DHCP_TIMEOUT = 30
+DHCP_INTERVAL = 30
 RESTART_DELAY = 5
 ATTACH_RETRY = 1
 ATTACH_TIMEOUT = 2
@@ -116,6 +119,12 @@ class Supplicant:
         self.last_error = ''
         self.last_event = ''
         self.authenticated_at = None
+        # Authorization can remain in place while the EAP/UI state is authenticating.
+        self.port_authorized = False
+        self.dhcp_pending = False
+        self.dhcp_proc = None
+        self.dhcp_started = 0
+        self.next_dhcp = 0
 
     def device_exists(self):
         try:
@@ -133,6 +142,7 @@ class Supplicant:
     def start(self):
         # back off before anything can fail, a broken start must not spin
         self.next_start = time.monotonic() + RESTART_DELAY
+        self.port_authorized = False
         if not self.device_exists():
             self.set_state('waiting', 'device %s does not exist' % self.device)
             return
@@ -156,6 +166,7 @@ class Supplicant:
 
     def stop(self, kill=False):
         """kill: for a hung (e.g. stopped) process, which would not act on SIGTERM."""
+        self.port_authorized = False
         self.ctrl.close()
         if self.proc is not None and self.proc.poll() is None:
             if not kill:
@@ -219,15 +230,79 @@ class Supplicant:
     def sync_status(self):
         """Events sent while detached are lost, take the current EAP state instead."""
         status = parse_status(self.ctrl.command('STATUS', CTRL_TIMEOUT))
+        if status.get('suppPortStatus') == 'Unauthorized':
+            self.port_authorized = False
         if status.get('EAP state') == 'SUCCESS' and status.get('suppPortStatus') == 'Authorized':
-            if self.state != 'authenticated':
-                self.set_state('authenticated', '')
-                if self.state == 'authenticated':
-                    self.authenticated_at = int(time.time())
+            self.authentication_succeeded()
         elif status.get('EAP state') == 'FAILURE':
+            self.port_authorized = False
             self.set_state('failed', self.last_error or 'authentication rejected (check identity and password)')
         elif self.state == 'authenticated':
             self.set_state('authenticating')
+
+    def authentication_succeeded(self):
+        """Refresh DHCP on a new authorization, preserving leases through normal re-authentication."""
+        was_authenticated = self.state == 'authenticated'
+        was_authorized = self.port_authorized
+        self.retries = 0
+        self.set_state('authenticated', '')
+        if self.state != 'authenticated':
+            return  # a known link loss outranks a late success
+        self.port_authorized = True
+        if not was_authenticated:
+            self.authenticated_at = int(time.time())
+        if not was_authorized:
+            self.dhcp_pending = True
+
+    def stop_dhcp(self, force=False):
+        """Let the DHCP restart finish on shutdown, so core is not left without a client."""
+        if self.dhcp_proc is not None:
+            if self.dhcp_proc.poll() is None:
+                if not force:
+                    remaining = max(0, DHCP_TIMEOUT - (time.monotonic() - self.dhcp_started))
+                    try:
+                        self.dhcp_proc.wait(remaining)
+                    except subprocess.TimeoutExpired:
+                        force = True
+                if force:
+                    self.dhcp_proc.terminate()
+                    try:
+                        self.dhcp_proc.wait(2)
+                    except subprocess.TimeoutExpired:
+                        self.dhcp_proc.kill()
+                        self.dhcp_proc.wait()
+            self.dhcp_proc = None
+
+    def check_dhcp(self, now):
+        """Keep DHCP work off the shared authentication/link event loop."""
+        if self.dhcp_proc is not None:
+            result = self.dhcp_proc.poll()
+            if result is None and now - self.dhcp_started < DHCP_TIMEOUT:
+                return
+            if result is None:
+                self.stop_dhcp(force=True)
+                result = 'timed out'
+            else:
+                self.dhcp_proc = None
+            if result != 0:
+                log(syslog.LOG_ERR, '%s: DHCP refresh failed (%s), retrying' % (self.interface, result))
+                self.dhcp_pending = True
+                self.next_dhcp = max(self.next_dhcp, now + RESTART_DELAY)
+        if not self.dhcp_pending or self.state != 'authenticated' or self.link is False or now < self.next_dhcp:
+            return
+        # Consume only this request: another success while the helper runs queues
+        # the next one, which must survive completion of the current helper.
+        self.next_dhcp = now + RESTART_DELAY
+        try:
+            self.dhcp_proc = subprocess.Popen([DHCP_REFRESH, self.interface, self.device],
+                                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                              stderr=subprocess.DEVNULL)
+        except OSError as e:
+            log(syslog.LOG_ERR, '%s: cannot start DHCP refresh: %s' % (self.interface, e))
+            return
+        self.dhcp_pending = False
+        self.dhcp_started = now
+        self.next_dhcp = now + DHCP_INTERVAL
 
     def reauthenticate(self, reason):
         """Start a new 802.1X exchange; kept pending and retried until it went out.
@@ -318,12 +393,10 @@ class Supplicant:
             self.eap_started = True
             self.set_state('authenticating')
         elif event == 'CTRL-EVENT-EAP-SUCCESS':
-            self.retries = 0
-            self.set_state('authenticated', '')
-            if self.state == 'authenticated':
-                self.authenticated_at = int(time.time())
+            self.authentication_succeeded()
             log(syslog.LOG_NOTICE, '%s: authentication succeeded' % self.interface)
         elif event == 'CTRL-EVENT-EAP-FAILURE':
+            self.port_authorized = False
             if self.state != 'failed' or not self.last_error:
                 self.last_error = 'authentication rejected (check identity and password)'
             self.set_state('failed')
@@ -332,8 +405,10 @@ class Supplicant:
             err = re.search(r"err='([^']*)'", args)
             self.set_state('failed', 'server certificate rejected: %s' % (err.group(1) if err else args))
         elif event == 'CTRL-EVENT-EAP-TIMEOUT-FAILURE' or event == 'CTRL-EVENT-EAP-TIMEOUT-FAILURE2':
+            self.port_authorized = False
             self.set_state('failed', 'authentication timed out')
         elif event == 'CTRL-EVENT-DISCONNECTED':
+            self.port_authorized = False
             self.kicked()
             self.set_state('authenticating')
         elif event.startswith('CTRL-REQ-'):
@@ -350,6 +425,7 @@ class Supplicant:
             self.reauthenticate('link up')
         elif not up and self.link is not False:
             self.link = False
+            self.port_authorized = False
             log(syslog.LOG_NOTICE, '%s: link down' % self.interface)
             self.set_state('link down')
         elif up:
@@ -366,6 +442,7 @@ class Supplicant:
         if not up or self.link is False:
             self.on_link(up)
         else:
+            self.port_authorized = False  # a full down/up may have been missed
             self.reauthenticate('link events may have been missed')
 
     def check(self, now):
@@ -376,6 +453,7 @@ class Supplicant:
             log(syslog.LOG_ERR, '%s: supplicant exited with %d' % (self.interface, self.proc.returncode))
             self.ctrl.close()
             self.proc = None
+            self.port_authorized = False
             self.set_state('stopped', 'supplicant exited unexpectedly')
             self.next_start = now + RESTART_DELAY
         if self.proc is None:
@@ -531,6 +609,7 @@ class Daemon:
             # never leave supplicants behind: a restarted daemon would race them for the device
             for sup in self.supplicants.values():
                 guarded(sup, sup.stop)
+                guarded(sup, sup.stop_dhcp)
             if self.monitor is not None:
                 self.monitor.terminate()
             if self.control is not None:
@@ -573,6 +652,7 @@ class Daemon:
             now = time.monotonic()
             for sup in self.supplicants.values():
                 guarded(sup, sup.check, now)
+                guarded(sup, sup.check_dhcp, now)
             self.write_status()
 
 

@@ -31,8 +31,9 @@ The spike scripts are in the `spikes/` directory.
 ## S2 — Startup Ordering and DHCP ✅
 
 * Starting the supplicant after the port has been unauthorized for 120 seconds (dhclient already in backoff): EAP succeeds in 3 seconds, **lease obtained in 6 seconds**. FreeBSD dhclient's backoff ceiling is short.
-* **Conclusion: no `interface reconfigure` is needed after successful authentication** (it is heavy and drops the address first). It is enough to start the supplicant in the `early` stage or when the service starts.
-  The plugin may offer an optional "renew lease immediately after authentication" switch (to be evaluated in M4).
+* This experiment only covered a client without a lease. Real networks may provide a guest/quarantine lease before authentication and then move the port to another subnet; an existing valid lease prevents dhclient from immediately requesting a new address.
+* **Corrected conclusion: first authorization and recovery from lost authorization must trigger a fresh IPv4 DHCP exchange.** The plugin asynchronously stops the interface's core DHCP supervisor, clears the old lease and dynamic IPv4 address, and calls core's `interface_dhcp_configure()`. The normal DHCP BOUND callback updates routes, DNS and related services; static IPv4 is skipped. The heavy `interface reconfigure` remains unnecessary and would disturb the link and authentication.
+* EAP-STARTED and the UI's authenticating state do not imply loss of authorization. Track authorization separately so successful periodic or manual re-authentication can preserve DHCP. During one daemon run, a 30-second interval coalesces refreshes per interface while retaining recovery requests until they can run. DHCP PID and lease-file modification time alone cannot prove that a client obtained a lease after authorization, so neither is used to skip a needed refresh. A subnet change while authorization remains in place requires an additional network-change signal and is outside this trigger policy.
 
 ## S3 — VLAN Subinterfaces ✅
 
@@ -75,7 +76,7 @@ In addition, the failure reason (wrong password or certificate error) must be sh
 ## Impact on Plugin Design (Changes Relative to the ROADMAP)
 
 1. Use `/usr/local/sbin/wpa_supplicant -D wired`, logging to syslog via `-s`.
-2. Drop "interface reconfigure after successful authentication" in favour of an optional lightweight lease renewal.
+2. Obtain a fresh IPv4 DHCP lease asynchronously on first authorization and authorization recovery, including when an old subnet's lease is still valid; preserve DHCP during re-authentication that retains authorization and limit refresh frequency.
 3. **New: re-authenticate on link up** (included already in M3; otherwise the connection is lost after unplugging the cable).
 4. Each supplicant gets a `wpa_cli -a` action script that records the latest events and failure reason for the status page.
 5. Escape identity and password correctly according to wpa_supplicant syntax, avoiding the direct-interpolation problem in core's Wi-Fi code.

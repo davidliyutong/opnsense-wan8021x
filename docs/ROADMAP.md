@@ -14,7 +14,7 @@ English | [简体中文](ROADMAP.zh-CN.md)
 | M5 e2e | ✅ 24 test cases; `make check` runs from a fresh VM in about 3 minutes |
 | M6 Packaging | 🟡 `make package` works; not yet submitted upstream, documentation still to be completed (screenshots, user manual) |
 
-Differences from the original plan: the "interface reconfigure after successful authentication" step was dropped (S2 showed it is unnecessary);
+Differences from the original plan: first authorization and authorization recovery trigger an asynchronous fresh IPv4 DHCP exchange instead of a full `interface reconfigure` (S2 only tested initial lease acquisition and missed authenticated subnet changes; its conclusion has been corrected); re-authentication that retains authorization preserves the lease, and refreshes are rate limited;
 link monitoring uses `route -n monitor` instead of devd (devd only runs the highest-priority matching rule);
 the promisc option was removed (the core interface settings already provide it).
 

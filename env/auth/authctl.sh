@@ -8,6 +8,8 @@
 #   authctl authorized [v100|v200]  authorized MACs, one per line
 #   authctl reset             all ports back to unauthorized
 #   authctl reauth MAC        authenticator-initiated re-authentication (untagged port)
+#   authctl preauth MAC       allow data before authentication to obtain an old lease
+#   authctl network default|changed  switch the untagged subnet without a link event
 set -eu
 cmd=${1:-status}
 case $cmd in
@@ -43,5 +45,15 @@ reset)
 	nft flush set netdev wan8021x auth_v200
 	;;
 reauth) hostapd_cli -p /run/hostapd -i tap-wan raw "EAPOL_REAUTH $2" ;;
+preauth) nft add element netdev wan8021x auth_untagged "{ $2 }" ;;
+network)
+	case ${2:-} in
+	default) old=172.31.10.1; new=172.31.0.1 ;;
+	changed) old=172.31.0.1; new=172.31.10.1 ;;
+	*) echo "network must be default or changed" >&2; exit 64 ;;
+	esac
+	ip addr replace "$new/24" dev tap-wan
+	ip addr del "$old/24" dev tap-wan 2>/dev/null || true
+	;;
 *) echo "unknown command: $cmd" >&2; exit 64 ;;
 esac

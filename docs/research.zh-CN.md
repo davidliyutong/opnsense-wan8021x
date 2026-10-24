@@ -31,8 +31,9 @@ spike 脚本在 `spikes/` 目录。
 ## S2 —— 启动时序和 DHCP ✅
 
 * 端口未授权 120 秒（dhclient 已进入退避）后再启动 supplicant：3 秒 EAP 成功，**6 秒拿到租约**。FreeBSD dhclient 的退避上限很短。
-* **结论：认证成功后不需要 `interface reconfigure`**（它很重，会先丢掉地址）。supplicant 只要在 `early` 阶段或服务启动时拉起即可。
-  插件可以提供一个可选的“认证成功后立即续约”开关（M4 评估）。
+* 此实验只覆盖了尚未获得租约的情况。实际网络可能在认证前提供访客/隔离网段租约，认证成功后再切换网段；旧租约仍有效时，dhclient 不会立即重新获取地址。
+* **修正结论：首次获得授权、失去授权后恢复时，必须主动重新获取 IPv4 DHCP 租约。** 插件异步停止该接口的 core DHCP supervisor，清除旧租约和动态 IPv4 地址，再调用 core 的 `interface_dhcp_configure()`。正常 DHCP BOUND 回调负责更新路由、DNS 和相关服务；静态地址跳过。仍不执行重型的 `interface reconfigure`，避免干扰链路和认证。
+* EAP-STARTED 和界面的“认证中”不代表端口已经失去授权。单独跟踪授权状态，让保持授权期间的周期或手动重认证保留 DHCP。每次守护进程运行期间，每接口 30 秒内最多刷新一次，窗口内的恢复请求保留到期后执行。DHCP 进程 PID 和租约文件修改时间本身都不能证明客户端已在授权后取得租约，因此不以它们为跳过刷新依据。保持授权时仍发生网段变化需要额外的网络变化信号，不在这个触发策略的检测范围内。
 
 ## S3 —— VLAN 子接口 ✅
 
@@ -74,7 +75,7 @@ VLAN 子接口会随父接口一起产生事件，所以只需监视 supplicant 
 ## 对插件设计的影响（相对 ROADMAP 的调整）
 
 1. 使用 `/usr/local/sbin/wpa_supplicant -D wired`，日志通过 `-s` 走 syslog。
-2. 去掉“认证成功后 interface reconfigure”，改为可选的轻量续约。
+2. 首次获得授权或授权恢复后异步重新获取 IPv4 DHCP 租约，覆盖已有旧网段租约的情况；保持授权期间的重认证保留 DHCP，并限制刷新频率。
 3. **新增：link up 时重新认证**（M3 就纳入，否则拔线后断网）。
 4. 每个 supplicant 配一个 `wpa_cli -a` action 脚本，记录最近的事件和失败原因，供状态页使用。
 5. identity 和 password 按 wpa_supplicant 的语法正确转义，避免 core Wi-Fi 代码里直接插值的问题。
