@@ -3,7 +3,7 @@ import threading
 import time
 
 import vmlib
-from conftest import auth, authorized, vm_sh, wait_for
+from conftest import VM_WAN_MAC, auth, authorized, vm_sh, wait_for
 
 SUPPLICANT = "wpa_supplicant -D wired -i vtnet1"
 
@@ -112,3 +112,53 @@ def test_started_while_link_down(plugin):
     finally:
         pull.join()
     wait_for(lambda: authorized(), timeout=40, what="authentication after the link came up")
+
+
+def test_authenticator_reauthentication(plugin):
+    """A re-authentication the switch starts (e.g. RADIUS Session-Timeout) long after the last
+    one the daemon kicked must run to completion, not be taken for a stalled exchange."""
+    # hostapd frees the station of the previous test's supplicant (EAPOL-Logoff) only 5s later;
+    # an exchange started before ends up on the freed station, where EAPOL_REAUTH fails
+    time.sleep(6)
+    plugin.configure()
+    wait_for(lambda: plugin.status()["status"] == "authorized", timeout=30, what="authentication")
+    time.sleep(22)  # past EAP_RESULT_TIMEOUT since the daemon last kicked an exchange
+    sup = supplicant_pid()
+    before = plugin.status()["authenticated_at"]
+    assert auth("reauth", VM_WAN_MAC).strip() == "OK"
+    wait_for(lambda: plugin.status()["authenticated_at"] > before, timeout=30, what="re-authentication")
+    time.sleep(3)
+    assert supplicant_pid() == sup, "the supplicant must not have been restarted"
+    assert plugin.status()["status"] == "authorized"
+
+
+def test_status_write_failure_keeps_authenticating(plugin):
+    """The status file is only for the GUI: failing to write it must not stop the supplicants."""
+    plugin.configure()
+    wait_for(lambda: authorized(), timeout=30, what="authentication")
+    daemon, sup = daemon_pid(), supplicant_pid()
+    # a directory where the temporary status file goes
+    vm_sh("mkdir /var/run/wan8021x/status.json.tmp")
+    try:
+        auth("reset")
+        assert vmlib.api("POST", "wan8021x/service/reauthenticate/wan")["status"] == "ok"
+        wait_for(lambda: authorized(), timeout=30, what="re-authentication while the status cannot be written")
+        assert "cannot write the status file" in vm_sh("cat /var/log/wan8021x/*.log")
+        assert (daemon_pid(), supplicant_pid()) == (daemon, sup)
+    finally:
+        vm_sh("rmdir /var/run/wan8021x/status.json.tmp")
+    wait_for(lambda: plugin.status()["status"] == "authorized", timeout=10, what="status file to be written again")
+
+
+def test_link_monitor_restart_resyncs(plugin):
+    """A link loss while the link monitor is gone must still lead to a re-authentication."""
+    plugin.configure()
+    wait_for(lambda: authorized(), timeout=30, what="authentication")
+    monitor = vm_sh("pgrep -f 'route -n monitor'").split()
+    # stopped, it misses the link events; killed afterwards, they are never delivered
+    vm_sh(f"kill -STOP {' '.join(monitor)}")
+    auth("flap", "3")
+    vm_sh(f"kill -9 {' '.join(monitor)}")
+    wait_for(lambda: "link monitor restarted" in vm_sh("cat /var/log/wan8021x/*.log"),
+             timeout=15, what="the monitor to be restarted")
+    wait_for(lambda: authorized(), timeout=30, what="re-authentication after the missed link loss")

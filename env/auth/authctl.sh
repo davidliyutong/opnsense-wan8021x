@@ -7,6 +7,7 @@
 #   authctl leases            dnsmasq leases
 #   authctl authorized [v100|v200]  authorized MACs, one per line
 #   authctl reset             all ports back to unauthorized
+#   authctl reauth MAC        authenticator-initiated re-authentication (untagged port)
 set -eu
 cmd=${1:-status}
 case $cmd in
@@ -41,5 +42,6 @@ reset)
 	nft flush set netdev wan8021x auth_v100
 	nft flush set netdev wan8021x auth_v200
 	;;
+reauth) hostapd_cli -p /run/hostapd -i tap-wan raw "EAPOL_REAUTH $2" ;;
 *) echo "unknown command: $cmd" >&2; exit 64 ;;
 esac

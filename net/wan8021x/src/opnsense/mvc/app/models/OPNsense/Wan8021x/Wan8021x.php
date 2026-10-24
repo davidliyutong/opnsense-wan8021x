@@ -72,24 +72,6 @@ class Wan8021x extends BaseModel
     }
 
     /**
-     * @return array interface => device for every enabled supplicant, empty when the service is off
-     */
-    public function activeDevices(): array
-    {
-        $result = [];
-        if ($this->general->enabled->isEqual('1')) {
-            foreach ($this->supplicants->supplicant->iterateItems() as $supplicant) {
-                if ($supplicant->enabled->isEqual('1')) {
-                    $ifname = $supplicant->interface->getValue();
-                    $result[$ifname] = $this->deviceOf($ifname);
-                }
-            }
-        }
-        ksort($result);
-        return $result;
-    }
-
-    /**
      * @return bool true when the service should run: enabled with at least one enabled supplicant
      */
     public function isActive()

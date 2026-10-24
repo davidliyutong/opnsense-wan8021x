@@ -103,6 +103,8 @@ if (!mkdir($stage, 0700)) {
 
 $mdl = new Wan8021x();
 $index = [];
+/* interfaces without a device yet, the plugin hook starts them once they have one */
+$unresolved = [];
 
 if ($mdl->general->enabled->isEqual('1')) {
     foreach ($mdl->supplicants->supplicant->iterateItems() as $uuid => $sup) {
@@ -113,6 +115,7 @@ if ($mdl->general->enabled->isEqual('1')) {
         $device = $mdl->deviceOf($ifname);
         if ($device == '') {
             syslog(LOG_ERR, "wan8021x: interface {$ifname} has no usable device, skipped");
+            $unresolved[] = $ifname;
             continue;
         }
 
@@ -168,6 +171,7 @@ if ($mdl->general->enabled->isEqual('1')) {
 write_file('supplicants.json', json_encode([
     'debug' => $mdl->general->debug->isEqual('1'),
     'supplicants' => $index,
+    'unresolved' => $unresolved,
 ], JSON_PRETTY_PRINT) . "\n");
 
 /* the daemon is stopped while this runs, nothing reads the directory during the swap */

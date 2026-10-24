@@ -125,11 +125,13 @@ password with quotes (see `env/auth/eap_user`). The authenticator can pull the
 VM's cable, reset ports and report authorized MACs (`authctl`); the tests reach
 it via `.cache/run/authctl.sock`. Details: [docs/testenv.md](docs/testenv.md).
 
-The 37 end-to-end tests cover all methods, wrong password, rogue CA and
-domain mismatch, special characters, link loss, manual re-authentication, crashed, hung or
+The 41 end-to-end tests cover all methods, wrong password, rogue CA and
+domain mismatch, special characters, link loss (also while the link monitor is gone), manual and
+authenticator-initiated re-authentication, crashed, hung or
 unstartable supplicants, starting with the link down, failed configuration generation,
-concurrent restarts, VLAN uplinks, two VLANs at once,
-interface reassignment (GUI order and saved first), reboot, upgrade and uninstall, validation,
+concurrent restarts, an unwritable status file, VLAN uplinks, two VLANs at once,
+interface reassignment (GUI order and saved first), saved but unapplied changes, reboot,
+upgrade and uninstall, validation,
 secret handling and the GUI page.
 
 ## Status and limitations
@@ -142,6 +144,9 @@ See [docs/ROADMAP.md](docs/ROADMAP.md).
   wpa_supplicant has no option to change it. Use the interface's own
   promiscuous mode and MAC spoofing settings where an authenticator needs them.
 * Tested against hostapd's EAP server only, not a real RADIUS server or a real switch.
+* When an interface the plugin runs on is moved to another device, the service
+  restarts from the saved settings, so plugin changes saved but not yet
+  applied take effect with it.
 
 ## License
 
