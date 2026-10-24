@@ -58,7 +58,8 @@ Background and measurements: [docs/research.md](docs/research.md).
 net/wan8021x/      the plugin (opnsense/plugins layout)
 env/               test environment: vm/ (QEMU/KVM), auth/ (authenticator), dev/ (tooling), provision/
 tests/e2e/         end-to-end tests (pytest)
-tools/             vmctl.py, vmlib.py, lint.sh, bin/vm-ssh
+tools/             vmctl.py, vmlib.py, lint.sh, stage.sh, bin/vm-ssh
+.github/workflows/ CI (lint + FreeBSD build) and tag-driven releases
 spikes/            the scripts behind docs/research.md
 vendor/plugins     opnsense/plugins @ 26.7.7 (Mk/, Templates/, … are symlinked from here)
 vendor/core        opnsense/core @ 26.7.7 (lint rules, ruleset.xml)
@@ -81,6 +82,8 @@ make reset            # fresh VM from golden + authenticator (~20 s)
 make deploy           # build the package inside the VM and install it
 make test             # end-to-end tests against the running VM (TESTARGS="-k vlan")
 make lint             # phpcs/pycodestyle/shellcheck locally + upstream "make lint" in the VM
+make lint-local       # only the local checks (no VM), as run by CI
+make ci-local         # the GitHub workflows under act, capped like a GitHub runner
 make check            # lint + reset + deploy + test (~3 min)
 make package          # .cache/pkg/os-wan8021x-devel-*.pkg
 make help             # everything else (console, ssh, logs, down, …)
@@ -88,6 +91,21 @@ make help             # everything else (console, ssh, logs, down, …)
 
 GUI: https://127.0.0.1:18443 (root / opnsense, self-signed certificate);
 ssh: `make ssh`. Ports are set in `env/versions.env`.
+
+### CI and releases
+
+Every push and pull request runs `make lint-local` in the pinned dev image
+and, in a FreeBSD 15 VM (the base of OPNsense 26.7), the upstream
+`make lint` and `make package`; the `-devel` package is kept as a workflow
+artifact. The end-to-end tests need `/dev/kvm` plus the authenticator and stay
+local (`make check`). The workflows also run locally with act
+(`make ci-local`); see [docs/testenv.md](docs/testenv.md) for the resource
+limits and measured usage.
+
+To release, set `PLUGIN_VERSION` in `net/wan8021x/Makefile`, then push a
+matching tag (`v0.1`, or `v0.1_1` with `PLUGIN_REVISION=1`). The release
+workflow builds `os-wan8021x-<version>.pkg` (without the `-devel` suffix) and
+publishes it with a `SHA256SUMS` file as a GitHub release.
 
 ### Test environment
 

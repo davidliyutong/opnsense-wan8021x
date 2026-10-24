@@ -1,0 +1,53 @@
+name: Build
+
+# Runs the upstream "make lint" (needs FreeBSD tools) and "make package" in a
+# FreeBSD VM matching the OPNsense base major version, then uploads the pkg.
+on:
+  workflow_call:
+    inputs:
+      release:
+        description: Build the release package (os-wan8021x, without the -devel suffix)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  PLUGIN: net/wan8021x
+  STAGE: work/stage
+
+jobs:
+  package:
+    name: FreeBSD lint + package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - name: Stage build tree
+        run: |
+          tools/stage.sh "$PLUGIN" "$STAGE"
+          echo "PLUGIN_HASH=$(git rev-parse HEAD | cut -c1-9)" >> "$GITHUB_ENV"
+          echo "MAKE_ARGS=${{ inputs.release && 'PLUGIN_DEVEL=' || '' }}" >> "$GITHUB_ENV"
+      - name: Lint and package on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          # newest 15.x: OPNsense 26.7 is FreeBSD 15.1 (pkg ABI FreeBSD:15:amd64),
+          # and packages from the ports tree need the latest minor's libc
+          release: '15'
+          usesh: true
+          envs: 'PLUGIN STAGE PLUGIN_HASH MAKE_ARGS'
+          prepare: pkg install -y php84 libxml2
+          run: |
+            set -e
+            cd "$STAGE/plugins/$PLUGIN"
+            make lint
+            make package PLUGIN_HASH="$PLUGIN_HASH" $MAKE_ARGS
+      - name: Show package
+        run: ls -l "$STAGE/plugins/$PLUGIN/work/pkg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: ${{ env.STAGE }}/plugins/${{ env.PLUGIN }}/work/pkg/*.pkg
+          if-no-files-found: error

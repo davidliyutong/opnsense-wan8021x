@@ -71,6 +71,32 @@ make test      # 对当前 VM 运行 e2e（TESTARGS="-k vlan" 可筛选）
 make check     # lint + reset + deploy + test，从干净状态全部跑一遍
 ```
 
+## GitHub CI 与本地 act
+
+`.github/workflows/` 下有三个 workflow：`ci.yml`（每次 push 和 pull request）、`build.yml`（可复用：通过 `vmactions/freebsd-vm` 在 FreeBSD 虚拟机中运行上游 `make lint` + `make package`）和 `release.yml`（`v*` tag）。
+
+```
+make ci-local                    # 用 act 运行 ci.yml，基于 HEAD 的干净 clone
+make ci-local ACTARGS="-j lint"  # 只运行一个 job
+tools/ci-local.sh -W .github/workflows/release.yml -e EVENT.json -j build
+                                 # release 构建；EVENT.json: {"ref":"refs/tags/v0.1"}
+```
+
+`tools/ci-local.sh` 会把 HEAD clone 到 `.cache/act/work/repo`（未提交的改动不会被测试），构建 job 镜像 `env/act/Dockerfile`（catthehacker ubuntu-24.04 镜像加上 rsync，runner 的 home 设为 `.cache/act`，使 `vmactions/freebsd-vm` 能像在 GitHub runner 上一样找到 `$HOME/work`），并透传 `/dev/kvm`。artifact 保存在 `.cache/act/artifacts`。`release.yml` 的 publish job 只在 GitHub 上运行。
+
+### 资源限制
+
+job 容器按 GitHub 托管的私有仓库 `ubuntu-latest` runner 限制：2 CPU、8 GB 内存、无 swap（`--cpus=2 --memory=8g --memory-swap=8g`）。公开仓库为 4 CPU / 16 GB。两者都有 14 GB SSD；overlay2 无法限制磁盘，因此改为实测磁盘用量。
+
+实测环境：act 0.2.88，2026-10-24（job 容器的 cgroup v2，每 5 秒采样）：
+
+| Job | 耗时 | CPU | 内存 | 磁盘 |
+|---|---|---|---|---|
+| Lint and format | 约 10 秒（dev 镜像无缓存构建另需约 30 秒） | 不到 1 核 | job 容器 37 MB；dev 镜像（300 MB）在宿主机 docker daemon 中构建，不受限制 | 镜像 300 MB |
+| FreeBSD lint + package | 约 1.5–2 分钟 | 虚拟机启动和装包时 2 核跑满，共约 70 CPU 秒 | anon 峰值 3.8 GiB（QEMU 客户机，配置 6 GiB），页缓存约 3.8 GiB；无 OOM kill，未触及 `memory.max` | 峰值约 4.4 GB（下载 FreeBSD 15.1 镜像 + 解压后 3.5 GB 的 qcow2） |
+
+同步进虚拟机的工作区约 230 MB（主要是 `vendor/core`）。lint job 使用宿主机的 docker socket，其 `dev` 容器和镜像构建不受上述限制。
+
 ## 与真实交换机的差异
 
 * 端口状态由 nftables 模拟，只过滤 VM 发往认证端的方向。
