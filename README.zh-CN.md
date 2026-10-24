@@ -8,7 +8,7 @@
 * 支持 PEAP 或 TTLS，内层认证为 MSCHAPv2（TTLS 还支持 PAP），可选外层（匿名）身份
 * 可选使用 System → Trust 中的证书颁发机构（CA）校验服务器，并支持域名后缀匹配
 * 开机时在接口配置完成后立即启动（`early` 钩子）；端口放行后 dhclient 即可获取租约
-* 链路恢复（拔插网线、交换机重启）时重新认证，并在 supplicant 崩溃时自动重启
+* 链路恢复（拔插网线、交换机重启）时重新认证，并在 supplicant 崩溃或卡死时自动重启
 * 状态页显示端口状态、EAP 状态、认证方式和最近一次失败原因，并提供手动重新认证按钮；同一菜单下可查看日志文件
 * 密码在 API 和 GUI 中均为只写，生成的配置文件仅 root 可读写（0600），凭据永远不会写入日志
 
@@ -93,7 +93,7 @@ GUI：https://127.0.0.1:18443（root / opnsense，自签名证书）；ssh：`ma
 
 测试账号：`alice` / `alice-secret`（PEAP、TTLS-MSCHAPv2、TTLS-PAP），`bob` / `bob-secret`，以及一个用户名含反斜杠和 UTF-8 字符、密码含引号的用户（见 `env/auth/eap_user`）。认证端（authenticator）可以拔掉虚拟机的网线、重置端口并报告已授权的 MAC（`authctl`）；测试通过 `.cache/run/authctl.sock` 访问它。详见 [docs/testenv.zh-CN.md](docs/testenv.zh-CN.md)。
 
-33 个端到端测试覆盖了：所有认证方式、错误密码、伪造 CA 与域名不匹配、特殊字符、链路中断、手动重新认证、supplicant 崩溃、卡死或无法启动、链路断开时启动服务、VLAN 上联、两个 VLAN 同时认证、接口重新分配、重启、升级与卸载、输入校验、敏感信息保护以及 GUI 页面。
+37 个端到端测试覆盖了：所有认证方式、错误密码、伪造 CA 与域名不匹配、特殊字符、链路中断、手动重新认证、supplicant 崩溃、卡死或无法启动、链路断开时启动服务、配置生成失败与并发重启、VLAN 上联、两个 VLAN 同时认证、接口重新分配、重启、升级与卸载、输入校验、敏感信息保护以及 GUI 页面。
 
 ## 状态与限制
 

@@ -6,6 +6,12 @@
 #
 # wan8021x_enable (bool):	Set to YES to run the WAN 802.1X supplicants.
 
+# configd, the plugin hooks and the package scripts may run this at the same
+# time: serialize the whole stop, generate, start sequence
+if [ -z "${_wan8021x_locked}" ]; then
+	_wan8021x_locked=1 exec /usr/bin/lockf -k -t 60 /var/run/wan8021x.lock "$0" "$@"
+fi
+
 . /etc/rc.subr
 
 name=wan8021x
@@ -20,7 +26,27 @@ pidfile=/var/run/${name}.pid
 procname=/usr/sbin/daemon
 command=/usr/sbin/daemon
 command_args="-f -r -R 5 -P ${pidfile} -t ${name} ${scriptdir}/wan8021xd.py"
-start_precmd="${scriptdir}/setup.php"
+start_precmd=wan8021x_prepare
 stop_postcmd="rm -f ${pidfile}"
+failed_marker=/var/run/${name}.setup-failed
 
+# shellcheck disable=SC2317 # called by rc.subr through start_precmd
+wan8021x_prepare()
+{
+	if "${scriptdir}/setup.php"; then
+		return 0
+	fi
+	# keep the WAN authenticated with the previous configuration, but report the
+	# failure (restart runs start in a subshell, hence a file and not a variable)
+	: > "${failed_marker}"
+	[ -f /var/etc/wan8021x/supplicants.json ]
+}
+
+rm -f "${failed_marker}"
 run_rc_command "$1"
+_status=$?
+if [ -f "${failed_marker}" ]; then
+	rm -f "${failed_marker}"
+	exit 1
+fi
+exit ${_status}

@@ -37,15 +37,19 @@ CONF_DIR = '/var/etc/wan8021x'
 CTRL_DIR = '/var/run/wan8021x'
 INDEX_FILE = os.path.join(CONF_DIR, 'supplicants.json')
 STATUS_FILE = os.path.join(CTRL_DIR, 'status.json')
+# the daemon's own request socket in CTRL_DIR, next to the supplicants' (named by device)
+DAEMON_CTRL = 'wan8021xd'
+DAEMON_SOCK = os.path.join(CTRL_DIR, DAEMON_CTRL)
 
 
 class CtrlClient:
-    """Client for one wpa_supplicant control interface (unix datagram socket)."""
+    """Client for one wpa_supplicant control interface, or the daemon's (unix datagram socket)."""
 
     def __init__(self, device):
         self.path = os.path.join(CTRL_DIR, device)
         self.device = device
         self.sock = None
+        self.attached = False
 
     def _open(self, timeout):
         """Bind a uniquely named local socket and connect it; caller owns the returned pair."""
@@ -66,19 +70,17 @@ class CtrlClient:
         return sock, local
 
     def attach(self):
-        """Subscribe to unsolicited events; the socket is left non-blocking for select()."""
+        """Subscribe to unsolicited events without waiting for the reply: the socket is
+        non-blocking, the caller selects on it and sets attached once OK arrives."""
         self.close()
-        sock, local = self._open(2)
+        sock, local = self._open(0)
         try:
             sock.send(b'ATTACH')
-            if not sock.recv(4096).startswith(b'OK'):
-                raise OSError('ATTACH refused')
         except OSError:
             sock.close()
             os.unlink(local)
             raise
-        sock.setblocking(False)
-        self.sock, self.local = sock, local
+        self.sock, self.local, self.attached = sock, local, False
 
     def command(self, cmd, timeout=3):
         """Send one command on a separate socket, so replies never mix with events."""
@@ -92,12 +94,14 @@ class CtrlClient:
 
     def close(self):
         if self.sock is not None:
-            try:
-                self.sock.send(b'DETACH')
-            except OSError:
-                pass
+            if self.attached:
+                try:
+                    self.sock.send(b'DETACH')
+                except OSError:
+                    pass
             self.sock.close()
             self.sock = None
+            self.attached = False
             try:
                 os.unlink(self.local)
             except FileNotFoundError:

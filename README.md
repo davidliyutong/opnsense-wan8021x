@@ -14,7 +14,7 @@ interfaces. This plugin adds one.
 * Starts at boot right after interface configuration (`early` hook); dhclient
   picks up the lease once the port opens
 * Re-authenticates when the link comes back up (cable pull, switch reboot) and
-  restarts a crashed supplicant
+  restarts a crashed or hung supplicant
 * Status tab with port state, EAP state, method and the last failure reason,
   plus a manual re-authenticate button; log file under the same menu
 * Password is write-only in the API and GUI, the generated configuration is
@@ -125,10 +125,11 @@ password with quotes (see `env/auth/eap_user`). The authenticator can pull the
 VM's cable, reset ports and report authorized MACs (`authctl`); the tests reach
 it via `.cache/run/authctl.sock`. Details: [docs/testenv.md](docs/testenv.md).
 
-The 33 end-to-end tests cover all methods, wrong password, rogue CA and
+The 37 end-to-end tests cover all methods, wrong password, rogue CA and
 domain mismatch, special characters, link loss, manual re-authentication, crashed, hung or
-unstartable supplicants, starting with the link down, VLAN uplinks, two VLANs at once,
-interface reassignment, reboot, upgrade and uninstall, validation,
+unstartable supplicants, starting with the link down, failed configuration generation,
+concurrent restarts, VLAN uplinks, two VLANs at once,
+interface reassignment (GUI order and saved first), reboot, upgrade and uninstall, validation,
 secret handling and the GUI page.
 
 ## Status and limitations

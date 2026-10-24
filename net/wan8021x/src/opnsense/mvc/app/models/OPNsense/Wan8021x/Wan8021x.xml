@@ -47,17 +47,17 @@
                 </phase2>
                 <identity type="TextField">
                     <Required>Y</Required>
-                    <Mask>/^[^\r\n]{1,253}$/u</Mask>
-                    <ValidationMessage>Enter the user name (1 to 253 characters, no line breaks).</ValidationMessage>
+                    <Mask>/^[^\x00-\x08\x0A-\x1F\x{FFFE}\x{FFFF}]{1,253}$/u</Mask>
+                    <ValidationMessage>Enter the user name (1 to 253 characters, no line breaks or control characters).</ValidationMessage>
                 </identity>
                 <anonymous_identity type="TextField">
-                    <Mask>/^[^\r\n]{0,253}$/u</Mask>
-                    <ValidationMessage>The outer identity cannot contain line breaks.</ValidationMessage>
+                    <Mask>/^[^\x00-\x08\x0A-\x1F\x{FFFE}\x{FFFF}]{0,253}$/u</Mask>
+                    <ValidationMessage>The outer identity cannot contain line breaks or control characters.</ValidationMessage>
                 </anonymous_identity>
                 <password type="UpdateOnlyTextField">
                     <Required>Y</Required>
-                    <Mask>/^[^\r\n]{1,256}$/u</Mask>
-                    <ValidationMessage>Enter the password (1 to 256 characters, no line breaks).</ValidationMessage>
+                    <Mask>/^[^\x00-\x08\x0A-\x1F\x{FFFE}\x{FFFF}]{1,256}$/u</Mask>
+                    <ValidationMessage>Enter the password (1 to 256 characters, no line breaks or control characters).</ValidationMessage>
                 </password>
                 <ca type="CertificateField">
                     <type>ca</type>

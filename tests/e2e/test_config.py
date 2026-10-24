@@ -38,6 +38,13 @@ def test_line_breaks_rejected(plugin):
     assert "supplicant.identity" in r["validations"]
 
 
+def test_control_characters_rejected(plugin):
+    """config.xml cannot hold them, saving would silently change the credential."""
+    r = plugin.add(identity="abc\u0000def", password="pass\u0001word")
+    assert r["result"] == "failed"
+    assert {"supplicant.identity", "supplicant.password"} <= set(r["validations"])
+
+
 def test_password_is_write_only(plugin):
     uuid = plugin.configure()
     assert vmlib.api("GET", f"wan8021x/settings/get_supplicant/{uuid}")["supplicant"]["password"] == ""

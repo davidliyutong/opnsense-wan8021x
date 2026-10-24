@@ -35,7 +35,7 @@ import sys
 
 # nothing may be written next to the packaged files, it would survive package removal
 sys.dont_write_bytecode = True
-from wan8021x_lib import CtrlClient, load_status, parse_status  # noqa: E402
+from wan8021x_lib import DAEMON_CTRL, CtrlClient, load_status, parse_status  # noqa: E402
 
 # wpa_cli status keys passed on to the GUI
 STATUS_KEYS = {
@@ -47,8 +47,8 @@ STATUS_KEYS = {
 
 def overall(row):
     """The daemon's view wins: after a cable pull wpa_supplicant still says Authorized
-    although the switch has reset the port."""
-    if row['state'] == 'authenticated' and row.get('port') == 'Authorized':
+    although the switch has reset the port, and a known link loss outranks both."""
+    if row['state'] == 'authenticated' and row.get('port') == 'Authorized' and row.get('link') is not False:
         return 'authorized'
     if row['state'] in ('failed', 'stopped'):
         return 'failed'
@@ -74,10 +74,12 @@ def supplicants():
 
 
 def reauthenticate(interface):
+    """Handled by the daemon, so a lost request is retried like any other re-authentication."""
     for row in load_status():
         if row['interface'] == interface:
             try:
-                print(CtrlClient(row['device']).command('REAUTHENTICATE').strip())
+                # the daemon may first have to wait for an unresponsive supplicant
+                print(CtrlClient(DAEMON_CTRL).command('REAUTHENTICATE %s' % interface, timeout=15).strip())
                 return 0
             except OSError as e:
                 # configd drops the output of a failing script, report through the text

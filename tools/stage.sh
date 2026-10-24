@@ -9,7 +9,17 @@ plugin=${1:?plugin directory}
 dest=${2:?destination directory}
 rm -rf "$dest"
 mkdir -p "$dest/plugins" "$dest/core"
-tar -chf - --exclude=.git --exclude=__pycache__ Mk Templates Scripts Keywords "$plugin" |
-	tar -C "$dest/plugins" -xf -
-tar -C vendor/core -cf - Mk Scripts ruleset.xml contrib/parallel-lint src/opnsense/mvc/app/models |
-	tar -C "$dest/core" -xf -
+archive=$(mktemp)
+trap 'rm -f "$archive"' EXIT
+
+# copy TO TAR_ARGS...: through a file, a pipe would hide a failure of the
+# creating tar from set -e (no pipefail in POSIX sh)
+copy() {
+	to=$1
+	shift
+	tar -cf "$archive" "$@"
+	tar -C "$to" -xf "$archive"
+}
+
+copy "$dest/plugins" -h --exclude=.git --exclude=__pycache__ Mk Templates Scripts Keywords "$plugin"
+copy "$dest/core" -C vendor/core Mk Scripts ruleset.xml contrib/parallel-lint src/opnsense/mvc/app/models
