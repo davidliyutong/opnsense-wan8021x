@@ -48,26 +48,29 @@ function wan8021x_configure()
 
 /*
  * Follow interface reassignments (WAN moved to another NIC or VLAN): restart
- * only when the interface -> device mapping differs from what is running, as
- * this hook also fires on every link up.
+ * only when the device of an interface the service runs on (or skipped for
+ * lack of a device) changed, as this hook also fires on every link up and
+ * every saved configuration change. Supplicants added, removed, enabled or
+ * disabled in the plugin wait for its Apply. A restart does generate from the
+ * saved settings, so unapplied plugin changes take effect along with it.
  */
 function wan8021x_configure_devices($verbose = false)
 {
     /* only follow a running service; starting and stopping belong to the service itself */
-    $wanted = (new \OPNsense\Wan8021x\Wan8021x())->activeDevices();
-    if (empty($wanted) || !isvalidpid('/var/run/wan8021x.pid')) {
+    if (!isvalidpid('/var/run/wan8021x.pid')) {
         return;
     }
 
-    $running = [];
     $index = json_decode(@file_get_contents('/var/etc/wan8021x/supplicants.json') ?: '[]', true);
+    $mdl = new \OPNsense\Wan8021x\Wan8021x();
+    $changed = false;
     foreach ($index['supplicants'] ?? [] as $entry) {
-        $running[$entry['interface']] = $entry['device'];
+        $changed = $changed || $mdl->deviceOf($entry['interface']) != $entry['device'];
     }
-    ksort($running);
-
-    /* devices that do not resolve are not started, compare like with like */
-    if (array_filter($wanted) == $running) {
+    foreach ($index['unresolved'] ?? [] as $ifname) {
+        $changed = $changed || $mdl->deviceOf($ifname) != '';
+    }
+    if (!$changed) {
         return;
     }
 

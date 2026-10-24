@@ -93,7 +93,7 @@ GUI：https://127.0.0.1:18443（root / opnsense，自签名证书）；ssh：`ma
 
 测试账号：`alice` / `alice-secret`（PEAP、TTLS-MSCHAPv2、TTLS-PAP），`bob` / `bob-secret`，以及一个用户名含反斜杠和 UTF-8 字符、密码含引号的用户（见 `env/auth/eap_user`）。认证端（authenticator）可以拔掉虚拟机的网线、重置端口并报告已授权的 MAC（`authctl`）；测试通过 `.cache/run/authctl.sock` 访问它。详见 [docs/testenv.zh-CN.md](docs/testenv.zh-CN.md)。
 
-37 个端到端测试覆盖了：所有认证方式、错误密码、伪造 CA 与域名不匹配、特殊字符、链路中断、手动重新认证、supplicant 崩溃、卡死或无法启动、链路断开时启动服务、配置生成失败与并发重启、VLAN 上联、两个 VLAN 同时认证、接口重新分配、重启、升级与卸载、输入校验、敏感信息保护以及 GUI 页面。
+41 个端到端测试覆盖了：所有认证方式、错误密码、伪造 CA 与域名不匹配、特殊字符、链路中断（包括链路监控中断期间）、手动重新认证与认证端发起的重新认证、supplicant 崩溃、卡死或无法启动、链路断开时启动服务、配置生成失败与并发重启、状态文件无法写入、VLAN 上联、两个 VLAN 同时认证、接口重新分配、已保存但未应用的修改、重启、升级与卸载、输入校验、敏感信息保护以及 GUI 页面。
 
 ## 状态与限制
 
@@ -102,6 +102,7 @@ GUI：https://127.0.0.1:18443（root / opnsense，自签名证书）；ssh：`ma
 * 暂不支持 EAP-TLS（客户端证书）、EAP-MD5 以及在 802.1X 端口上运行 PPPoE。
 * EAPOL 目的地址固定为 PAE 组播地址 `01:80:c2:00:00:03`；wpa_supplicant 没有修改它的选项。如果认证端有需要，请使用接口自身的混杂模式和 MAC 克隆（spoofmac）设置。
 * 仅针对 hostapd 内置的 EAP 服务器进行过测试，未在真实的 RADIUS 服务器或真实交换机上测试。
+* 插件所在的接口被分配到另一个设备时，服务会按已保存的设置重启，因此插件中已保存但尚未应用的修改也会随之生效。
 
 ## 许可证
 

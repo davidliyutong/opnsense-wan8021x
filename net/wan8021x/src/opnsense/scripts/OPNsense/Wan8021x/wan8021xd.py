@@ -312,6 +312,9 @@ class Supplicant:
         event, args = match.groups()
         self.last_event = event
         if event == 'CTRL-EVENT-EAP-STARTED':
+            # also the start of an exchange the authenticator began (periodic re-authentication),
+            # time it from here and not from whatever was kicked last
+            self.kicked_at = time.monotonic()
             self.eap_started = True
             self.set_state('authenticating')
         elif event == 'CTRL-EVENT-EAP-SUCCESS':
@@ -331,6 +334,7 @@ class Supplicant:
         elif event == 'CTRL-EVENT-EAP-TIMEOUT-FAILURE' or event == 'CTRL-EVENT-EAP-TIMEOUT-FAILURE2':
             self.set_state('failed', 'authentication timed out')
         elif event == 'CTRL-EVENT-DISCONNECTED':
+            self.kicked()
             self.set_state('authenticating')
         elif event.startswith('CTRL-REQ-'):
             # the supplicant waits for interactive input that will never come
@@ -350,6 +354,19 @@ class Supplicant:
             self.set_state('link down')
         elif up:
             self.link = True
+
+    def resync_link(self):
+        """Link events may have been missed (the monitor restarted): a down is taken as is, an up
+        re-authenticates, the link may have gone down and up in between."""
+        if self.proc is None:
+            return  # start() reads the link state itself
+        up = self.link_state()
+        if up is None:
+            return
+        if not up or self.link is False:
+            self.on_link(up)
+        else:
+            self.reauthenticate('link events may have been missed')
 
     def check(self, now):
         """Restart an exited supplicant, reattach a lost control interface, retry a
@@ -404,12 +421,32 @@ class Daemon:
         self.control = None
         self.running = True
         self.last_status = None
+        self.status_error = None
+        self.next_monitor = 0
+        self.monitor_started = False
 
     def start_monitor(self):
-        self.monitor = subprocess.Popen(['/sbin/route', '-n', 'monitor'], stdout=subprocess.PIPE,
-                                        stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        """(Re)start following link state; after a gap the cached link states are resynced."""
+        self.next_monitor = time.monotonic() + RESTART_DELAY
+        try:
+            self.monitor = subprocess.Popen(['/sbin/route', '-n', 'monitor'], stdout=subprocess.PIPE,
+                                            stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            log(syslog.LOG_ERR, 'cannot start the link monitor: %s' % e)
+            return
         os.set_blocking(self.monitor.stdout.fileno(), False)
         self.monitor_buf = b''
+        if self.monitor_started:
+            log(syslog.LOG_WARNING, 'link monitor restarted')
+            for sup in self.supplicants.values():
+                guarded(sup, sup.resync_link)
+        self.monitor_started = True
+
+    def drop_monitor(self):
+        """Reap an exited monitor; its pipe would keep select() returning."""
+        if self.monitor is not None and self.monitor.poll() is not None:
+            self.monitor.stdout.close()
+            self.monitor = None
 
     def on_monitor(self):
         data = self.monitor.stdout.read()
@@ -438,7 +475,7 @@ class Daemon:
         """'REAUTHENTICATE <interface>' from ctl.py, answered with OK or 'failed: <reason>'."""
         try:
             data, addr = self.control.recvfrom(4096)
-        except BlockingIOError:
+        except OSError:
             return
         cmd, _sep, interface = data.decode(errors='replace').strip().partition(' ')
         sup = next((s for s in self.supplicants.values() if s.interface == interface), None)
@@ -459,12 +496,22 @@ class Daemon:
                 pass  # the client gave up waiting
 
     def write_status(self):
+        """Only the GUI depends on it: a failure is logged and retried, authentication goes on."""
         status = [s.status() for s in self.supplicants.values()]
         if status != self.last_status:
             tmp = STATUS_FILE + '.tmp'
-            with open(tmp, 'w') as f:
-                json.dump(status, f)
-            os.rename(tmp, STATUS_FILE)
+            try:
+                with open(tmp, 'w') as f:
+                    json.dump(status, f)
+                os.rename(tmp, STATUS_FILE)
+            except OSError as e:
+                if str(e) != self.status_error:
+                    log(syslog.LOG_ERR, 'cannot write the status file: %s' % e)
+                    self.status_error = str(e)
+                return
+            if self.status_error is not None:
+                log(syslog.LOG_NOTICE, 'status file written again')
+                self.status_error = None
             self.last_status = status
 
     def stop(self, *_args):
@@ -474,6 +521,7 @@ class Daemon:
         signal.signal(signal.SIGTERM, self.stop)
         signal.signal(signal.SIGINT, self.stop)
         try:
+            # before the supplicants read their link state, so no change falls in between
             self.start_monitor()
             self.start_control()
             for sup in self.supplicants.values():
@@ -493,7 +541,12 @@ class Daemon:
 
     def loop(self):
         while self.running:
-            fds = {self.monitor.stdout: None, self.control: None}
+            self.drop_monitor()
+            if self.monitor is None and time.monotonic() >= self.next_monitor:
+                self.start_monitor()
+            fds = {self.control: None}
+            if self.monitor is not None:
+                fds[self.monitor.stdout] = None
             for sup in self.supplicants.values():
                 for fd in sup.fds():
                     fds[fd] = sup
@@ -508,13 +561,15 @@ class Daemon:
                 if fd is self.control:
                     self.on_control()
                 elif sup is None:
-                    self.on_monitor()
+                    try:
+                        self.on_monitor()
+                    except OSError as e:
+                        log(syslog.LOG_ERR, 'link monitor failed: %s' % e)
+                        self.monitor.kill()
                 elif sup.proc is not None and fd is sup.proc.stdout:
                     guarded(sup, sup.on_output)
                 else:
                     guarded(sup, sup.on_ctrl)
-            if self.monitor.poll() is not None:
-                self.start_monitor()
             now = time.monotonic()
             for sup in self.supplicants.values():
                 guarded(sup, sup.check, now)
