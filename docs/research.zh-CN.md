@@ -2,7 +2,7 @@
 
 # 调研与 spike 结论
 
-环境：OPNsense 26.7（FreeBSD 14, nano 镜像）、virtio-net（vtnet1 = WAN）、认证端为 hostapd 2.11 wired + 内置 EAP server。
+环境为 OPNsense 26.7（FreeBSD 15.1，nano 镜像）、virtio-net（vtnet1 = WAN）和使用内置 EAP server 的 hostapd 2.11 wired。
 spike 脚本在 `spikes/` 目录。
 
 ## 背景调研
@@ -90,7 +90,6 @@ VLAN 子接口会随父接口一起产生事件，所以只需监视 supplicant 
 * core 的接口设置本身就有 `promisc` 和 `disablevlanhwfilter`，因此插件不再重复提供这两个选项。
 * 包生命周期：core 的 `rc.configure_plugins` 在 POST_INSTALL 时不会启动服务。插件自带
   `+PRE_DEINSTALL.pre`（停止服务）、`+POST_INSTALL.post`（已启用时重启服务）、`+POST_DEINSTALL.post`（清理）。
-* 26.7 新增的接口分配 API（`interfaces/assignment/*`）只负责分配本身，设置 IP 方式还得走旧配置；
-  通过 API 分配的接口默认是锁定状态，删除前必须先解锁。
+* 26.1 使用旧版接口分配页面。26.7 引入了 `interfaces/assignment/*` API，26.7.6 把 IP 设置也整合进了接口分配页面。旧版页面和 API 都可能在保存分配前配置新设备，因此插件也会在配置保存后检查分配结果。API 默认锁定新分配的接口，删除前需先解锁。
 * 上游的 `make lint` 依赖 BSD 版的 find 和 sh，所以放在 VM 中执行（需要同步 core 的 `Mk/`、`Scripts/`、`contrib/parallel-lint`）；
   phpcs 和 pycodestyle 在 dev 容器中执行，使用 core 的 `ruleset.xml`。

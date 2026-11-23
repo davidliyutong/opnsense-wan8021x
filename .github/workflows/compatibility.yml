@@ -1,0 +1,59 @@
+name: OPNsense compatibility
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    outputs:
+      series: ${{ steps.profiles.outputs.series }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: profiles
+        run: |
+          series=$(printf '%s\n' env/opnsense/*.env | sed 's|.*/||; s|\.env$||' | jq -Rsc 'split("\n")[:-1]')
+          echo "series=$series" >> "$GITHUB_OUTPUT"
+
+  e2e:
+    name: OPNsense ${{ matrix.series }}
+    needs: versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        series: ${{ fromJSON(needs.versions.outputs.series) }}
+    env:
+      OPNSENSE_SERIES: ${{ matrix.series }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: .cache/dist
+      - name: Check VM devices
+        run: |
+          test -c /dev/kvm
+          test -c /dev/net/tun
+      - name: Boot OPNsense
+        run: |
+          make tools
+          make reset
+          tools/bin/vm-ssh /usr/local/sbin/opnsense-version
+          test "$(tools/bin/vm-ssh /usr/local/sbin/opnsense-version -V)" = "$OPNSENSE_SERIES"
+      - name: Install and test the built package
+        run: |
+          set -- .cache/dist/*.pkg
+          test "$#" -eq 1
+          test -f "$1"
+          make deploy PKGFILE="$1"
+          make test
+      - name: Stop test environment
+        if: always()
+        run: make down

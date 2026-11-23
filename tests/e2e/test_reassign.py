@@ -4,8 +4,8 @@ import time
 import pytest
 
 import vmlib
-from conftest import authorized, vm_sh, wait_for
-from test_vlan import VLAN_PREFIX, cleanup, vlans
+from conftest import authorized, hidden_fields, vm_sh, wait_for
+from test_vlan import VLAN_PREFIX, cleanup, has_assignment_api, vlans
 
 
 MOVE_WAN = """<?php
@@ -29,8 +29,8 @@ def move_api(device):
     assert vmlib.api("POST", "interfaces/assignment/reconfigure")["status"] == "ok"
 
 
-@pytest.mark.parametrize("move", [move_api, move_saved])
-def test_follows_interface_reassignment(plugin, move):
+@pytest.mark.parametrize("method", ["gui", "saved"])
+def test_follows_interface_reassignment(plugin, gui_session, method):
     """WAN moved to another device under Interfaces: Assignments, without touching the plugin."""
     cleanup()
     vmlib.api("POST", "interfaces/vlan_settings/add_item", {"vlan": {"if": "vtnet1", "tag": "100",
@@ -40,10 +40,21 @@ def test_follows_interface_reassignment(plugin, move):
     try:
         plugin.configure()
         wait_for(lambda: authorized("untagged"), timeout=30, what="authentication on vtnet1")
-        if move is move_api:
+        if method == "saved":
+            move_saved(device)
+        elif has_assignment_api():
             wait_for(lambda: device in vmlib.api("GET", "interfaces/assignment/get_item/wan")["interface"]["if"],
                      timeout=30, what=f"{device} to become assignable")
-        move(device)
+            move_api(device)
+        else:
+            session, base = gui_session
+            url = f"{base}/interfaces_assign.php"
+            page = session.get(url, timeout=60)
+            assert page.ok and 'name="wan"' in page.text
+            data = hidden_fields(page.text)
+            data.update(wan=device, Submit="yes")
+            response = session.post(url, data=data, allow_redirects=False, timeout=60)
+            assert response.is_redirect, response.status_code
         wait_for(lambda: authorized("v100"), timeout=40, what="authentication on the new WAN device")
         assert plugin.status()["device"] == device
     finally:

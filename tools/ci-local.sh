@@ -24,7 +24,12 @@ done
 git -C "$ws" -c protocol.file.allow=always submodule update -q --init
 
 docker build -q --build-arg ACT_IMAGE="$ACT_IMAGE" --build-arg RUNNER_HOME="$home" -t wan8021x/act:local env/act >/dev/null
-exec act -C "$ws" -P ubuntu-latest=wan8021x/act:local --pull=false \
+devices="--device /dev/kvm"
+if [ -c /dev/net/tun ]; then
+	devices="$devices --device /dev/net/tun"
+fi
+# Compose needs the checkout on the Docker host, and the test VMs share local ports.
+exec act -C "$ws" --bind --concurrent-jobs 1 -P ubuntu-latest=wan8021x/act:local --pull=false \
 	--artifact-server-path "$home/artifacts" \
-	--container-options "--cpus=2 --memory=8g --memory-swap=8g --device /dev/kvm" \
+	--container-options "--cpus=2 --memory=8g --memory-swap=8g $devices" \
 	push "$@"

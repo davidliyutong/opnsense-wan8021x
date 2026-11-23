@@ -43,6 +43,17 @@ class Wan8021x extends BaseModel
                 continue;
             }
             $key = $supplicant->__reference;
+            $password = $supplicant->password;
+            // Older core validators receive the redacted string representation of this field.
+            if (
+                ($validateFullModel || $password->isFieldChanged()) && $password->isSet() &&
+                !preg_match('/^[^\x00-\x08\x0A-\x1F\x{FFFE}\x{FFFF}]{1,256}$/u', $password->getValue())
+            ) {
+                $messages->appendMessage(new Message(
+                    gettext('Enter the password (1 to 256 characters, no line breaks or control characters).'),
+                    $key . '.password'
+                ));
+            }
             if ($supplicant->phase2->isEqual('PAP') && !$supplicant->eap_method->isEqual('TTLS')) {
                 $messages->appendMessage(new Message(
                     gettext('PAP can only be used as the inner method of TTLS.'),

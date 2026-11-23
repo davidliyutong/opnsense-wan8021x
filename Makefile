@@ -1,24 +1,29 @@
 # Single entry point for the wan8021x plugin and its test environment.
-# Host requirements: docker (with compose), git, /dev/kvm.
+# Host requirements: docker (with compose), git, /dev/kvm, /dev/net/tun.
 
 include env/versions.env
+OPNSENSE_SERIES ?= 26.7
+OPNSENSE_ENV = env/opnsense/$(OPNSENSE_SERIES).env
+include $(OPNSENSE_ENV)
 export
 
 HOST_UID	!= id -u
 HOST_GID	!= id -g
 export HOST_UID HOST_GID
 
-COMPOSE		= docker compose -f env/compose.yml --env-file env/versions.env
+COMPOSE		= docker compose -f env/compose.yml --env-file env/versions.env --env-file $(OPNSENSE_ENV)
 VM_RUN		= $(COMPOSE) run --rm --no-deps --entrypoint /usr/local/sbin/vm-entrypoint vm
 DEV		= $(COMPOSE) run --rm --no-deps dev
 BASE		= images/base-$(OPNSENSE_VERSION).qcow2
-GOLDEN		= vm/golden.qcow2
+GOLDEN		= vm/$(OPNSENSE_VERSION)/golden.qcow2
+VM_DISK		= vm/$(OPNSENSE_VERSION)/overlay.qcow2
 PLUGIN		= net/wan8021x
 
 .PHONY: help tools image golden reset up down restart logs console ssh shell \
 	deploy remove package lint lint-local ci-local test check status clean
 
 help:
+	@echo "OPNSENSE_SERIES selects the test VM (26.1 or 26.7, default 26.7)"
 	@echo "tools     build the local docker images (qemu, authenticator, dev tools)"
 	@echo "image     download + verify the OPNsense nano image, convert to qcow2"
 	@echo "golden    provision a golden VM disk (serial-console automation)"
@@ -26,12 +31,12 @@ help:
 	@echo "up/down   start/stop VM + authenticator"
 	@echo "console   attach to the VM serial console (ctrl-] to quit)"
 	@echo "ssh       ssh into the VM as root"
-	@echo "deploy    install the plugin from this tree into the VM"
+	@echo "deploy    install the plugin from this tree or PKGFILE=path/to/package.pkg"
 	@echo "package   build os-wan8021x pkg inside the VM into .cache/pkg"
 	@echo "lint      style checks in the dev container + upstream make lint in the VM"
 	@echo "lint-local  only the dev container checks (what CI runs on every push)"
 	@echo "test      end-to-end tests against the running VM (TESTARGS=... for pytest)"
-	@echo "check     lint + fresh VM + deploy + all tests"
+	@echo "check     fresh VM + lint + deploy + all tests"
 	@echo "ci-local  run the GitHub workflows with act under runner limits (ACTARGS=\"-j lint\")"
 
 tools:
@@ -39,7 +44,8 @@ tools:
 
 .cache/images/$(OPNSENSE_IMAGE):
 	mkdir -p .cache/images
-	curl -fL -o $@.part $(OPNSENSE_MIRROR)/$(OPNSENSE_VERSION)/$(OPNSENSE_IMAGE)
+	curl -fL -o $@.part $(OPNSENSE_MIRROR)/$(OPNSENSE_SERIES)/$(OPNSENSE_IMAGE)
+	printf '%s  %s\n' '$(OPNSENSE_SHA256)' '$@.part' | sha256sum -c -
 	mv $@.part $@
 
 .cache/$(BASE): .cache/images/$(OPNSENSE_IMAGE)
@@ -60,12 +66,12 @@ golden: .cache/$(GOLDEN)
 
 reset: .cache/$(GOLDEN)
 	$(COMPOSE) down
-	$(VM_RUN) overlay $(GOLDEN) vm/overlay.qcow2
+	$(VM_RUN) overlay $(GOLDEN) $(VM_DISK)
 	$(COMPOSE) up -d
 	$(DEV) python3 tools/vmctl.py wait
 
 up: .cache/$(GOLDEN)
-	@test -f .cache/vm/overlay.qcow2 || $(VM_RUN) overlay $(GOLDEN) vm/overlay.qcow2
+	@test -f .cache/$(VM_DISK) || $(VM_RUN) overlay $(GOLDEN) $(VM_DISK)
 	$(COMPOSE) up -d
 	$(DEV) python3 tools/vmctl.py wait
 
@@ -85,7 +91,7 @@ shell:
 	$(DEV) bash
 
 deploy:
-	$(DEV) python3 tools/vmctl.py deploy $(PLUGIN)
+	$(DEV) python3 tools/vmctl.py deploy $(PLUGIN) $(if $(PKGFILE),"$(PKGFILE)")
 
 remove:
 	$(DEV) python3 tools/vmctl.py remove $(PLUGIN)
@@ -106,7 +112,10 @@ lint-local:
 test:
 	$(DEV) python3 -m pytest -v tests/e2e $(TESTARGS)
 
-check: lint reset deploy test
+check: lint-local reset
+	$(DEV) python3 tools/vmctl.py lint $(PLUGIN)
+	$(MAKE) deploy
+	$(MAKE) test
 
 ci-local:
 	tools/ci-local.sh -W .github/workflows/ci.yml $(ACTARGS)

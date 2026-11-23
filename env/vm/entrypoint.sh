@@ -2,13 +2,13 @@
 # OPNsense VM runner. All state lives in /cache (bind mount of ./.cache).
 #
 #   run                     boot ${VM_DISK} (default)
-#   prepare-base            decompress the nano image into images/base.qcow2
+#   prepare-base            decompress the nano image into a versioned base disk
 #   overlay <backing> <out> create a copy-on-write disk on top of <backing>
 set -eu
 
 CACHE=/cache
 RUN_DIR=$CACHE/run
-VM_DISK=${VM_DISK:-vm/overlay.qcow2}
+VM_DISK=${VM_DISK:-vm/26.7/overlay.qcow2}
 VM_MEM=${VM_MEM:-3072}
 VM_CPUS=${VM_CPUS:-2}
 VM_DISK_SIZE=${VM_DISK_SIZE:-12G}
@@ -19,12 +19,13 @@ prepare_base() {
 	img=$CACHE/images/$OPNSENSE_IMAGE
 	out=$CACHE/images/base-$OPNSENSE_VERSION.qcow2
 	echo "$OPNSENSE_SHA256  $img" | sha256sum -c -
-	raw=$CACHE/images/base.raw
+	raw=$(mktemp "$CACHE/images/base-$OPNSENSE_VERSION.XXXXXX")
+	trap 'rm -f "$raw" "$out.tmp"' EXIT
 	bzip2 -dc "$img" > "$raw"
-	qemu-img convert -O qcow2 "$raw" "$out"
-	rm -f "$raw"
-	qemu-img resize "$out" "$VM_DISK_SIZE"
-	chown "${HOST_UID:-0}" "$out"
+	qemu-img convert -O qcow2 "$raw" "$out.tmp"
+	qemu-img resize "$out.tmp" "$VM_DISK_SIZE"
+	chown "${HOST_UID:-0}" "$out.tmp"
+	mv "$out.tmp" "$out"
 	echo "base image: $out"
 }
 

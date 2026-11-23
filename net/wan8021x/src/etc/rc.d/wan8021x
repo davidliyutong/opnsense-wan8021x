@@ -33,6 +33,7 @@ failed_marker=/var/run/${name}.setup-failed
 # shellcheck disable=SC2317 # called by rc.subr through start_precmd
 wan8021x_prepare()
 {
+	"${scriptdir}/check_compatibility.sh" || return 1
 	if "${scriptdir}/setup.php"; then
 		return 0
 	fi

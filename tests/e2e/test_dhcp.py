@@ -34,7 +34,8 @@ def dhclient_pid():
 
 def dhcp_refresh_count():
     """Count plugin refreshes separately from core's own DHCP restart on link up."""
-    return int(vm_sh("cat /var/log/wan8021x/*.log | "
+    # The latest.log symlink points at one of the dated log files.
+    return int(vm_sh("cat /var/log/wan8021x/wan8021x_*.log | "
                      "grep -c 'wan: restarted IPv4 DHCP after authentication on vtnet1' || true").strip())
 
 

@@ -2,7 +2,7 @@
 
 # 测试环境
 
-宿主机只需要 docker（含 compose 插件）、git 和 `/dev/kvm`。其余工具都在本仓库的
+宿主机需要 Docker Compose、Git、`/dev/kvm` 和 `/dev/net/tun`。其余工具都在本仓库的
 Dockerfile 里构建，所有运行状态都放在 `.cache/`（已加入 gitignore）。
 
 ## 拓扑
@@ -11,7 +11,7 @@ Dockerfile 里构建，所有运行状态都放在 `.cache/`（已加入 gitigno
  127.0.0.1:18443 (GUI) ─┐
  127.0.0.1:12222 (ssh) ─┤ socat → QEMU hostfwd(127.0.0.1) → vtnet0 LAN 10.0.2.15/24
                         │
- container vm: qemu-system-x86_64 -enable-kvm  (OPNsense 26.7 nano)
+ container vm: qemu-system-x86_64 -enable-kvm  (选定版本的 OPNsense nano)
     vtnet0 = LAN (QEMU user net, 管理用)
     vtnet1 = WAN ── tap-wan ─┐
                              │ (同一个 network namespace)
@@ -36,7 +36,7 @@ Dockerfile 里构建，所有运行状态都放在 `.cache/`（已加入 gitigno
 |---|---|
 | OPNsense GUI/console | root / opnsense |
 | ssh | `.cache/ssh/id_ed25519`（`make ssh`） |
-| API | `.cache/ssh/apikey.json` |
+| API | `.cache/ssh/apikey-<镜像版本>.json` |
 | EAP | alice / alice-secret（PEAP、TTLS-MSCHAPv2、TTLS-PAP），bob / bob-secret |
 | CA | `.cache/auth/pki/ca.crt`；`rogue-ca.crt` 用于测试 CA 校验失败 |
 
@@ -72,21 +72,28 @@ printf 'authorized\n' | socat - UNIX-CONNECT:.cache/run/authctl.sock
 ```
 make lint      # dev 容器：静态检查与守护进程单元测试；VM：上游 make lint
 make test      # 对当前 VM 运行 e2e（TESTARGS="-k vlan" 可筛选）
-make check     # lint + reset + deploy + test，从干净状态全部跑一遍
+make check     # 重置、检查、安装并测试 OPNsense 26.7
+make check OPNSENSE_SERIES=26.1
 ```
+
+同一轮本地测试的 VM 命令使用同一个 `OPNSENSE_SERIES`。不同镜像各有自己的 golden 磁盘、overlay 和 API key。VM 与认证端使用同一组端口和 socket，每个本地 checkout 顺序运行各个系列。
 
 ## GitHub CI 与本地 act
 
-`.github/workflows/` 下有三个 workflow：`ci.yml`（每次 push 和 pull request）、`build.yml`（可复用：通过 `vmactions/freebsd-vm` 在 FreeBSD 虚拟机中运行上游 `make lint` + `make package`）和 `release.yml`（`v*` tag）。
+`ci.yml` 在 push 和 pull request 时构建。`build.yml` 在 FreeBSD VM 中运行上游检查并生成软件包。`compatibility.yml` 根据 `env/opnsense/` 下的每个配置启动 OPNsense，安装并测试同一个包。`release.yml` 用同一矩阵验证实际要发布的软件包。
+
+包生命周期测试会在报告未支持版本的隔离根目录中运行 `pkg add`，检查拒绝提示，并确认没有软件包登记或解包文件。旧版 `pkg` 在预安装钩子中止解包时可能返回状态码 0。自动化安装正式包时可用 `pkg query '%v' os-wan8021x` 核对实际安装版本。
+
+添加版本系列时，在 `env/opnsense/<系列>.env` 固定 nano 镜像及其官方 SHA-256，在插件的 `check_compatibility.sh` 加入该系列，矩阵通过后更新两份 README 的支持范围。测试更新的维护版时，修改该系列配置中的镜像版本、文件名和校验和。停止支持某个系列时，一起移除其镜像配置与兼容性检查中的对应条目，并更新 README。
 
 ```
-make ci-local                    # 用 act 运行 ci.yml，基于 HEAD 的干净 clone
 make ci-local ACTARGS="-j lint"  # 只运行一个 job
+make ci-local ACTARGS="-j build" # 构建 FreeBSD 软件包
 tools/ci-local.sh -W .github/workflows/release.yml -e EVENT.json -j build
                                  # release 构建；EVENT.json: {"ref":"refs/tags/v0.1"}
 ```
 
-`tools/ci-local.sh` 会把 HEAD clone 到 `.cache/act/work/repo`（未提交的改动不会被测试），构建 job 镜像 `env/act/Dockerfile`（catthehacker ubuntu-24.04 镜像加上 rsync，runner 的 home 设为 `.cache/act`，使 `vmactions/freebsd-vm` 能像在 GitHub runner 上一样找到 `$HOME/work`），并透传 `/dev/kvm`。artifact 保存在 `.cache/act/artifacts`。`release.yml` 的 publish job 只在 GitHub 上运行。
+`tools/ci-local.sh` 会把 HEAD clone 到 `.cache/act/work/repo`（测试以提交为准），构建 job 镜像 `env/act/Dockerfile`（catthehacker ubuntu-24.04 镜像加上 rsync，runner 的 home 设为 `.cache/act`，使 `vmactions/freebsd-vm` 能像在 GitHub runner 上一样找到 `$HOME/work`），并透传 `/dev/kvm` 和 `/dev/net/tun`。本地矩阵任务共用 VM 端口，按顺序运行。artifact 保存在 `.cache/act/artifacts`。`release.yml` 的 publish job 只在 GitHub 上运行。
 
 ### 资源限制
 

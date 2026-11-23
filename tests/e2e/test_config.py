@@ -1,8 +1,4 @@
 """Model validation, secret handling and the GUI page."""
-import re
-
-import requests
-
 import vmlib
 from conftest import authorized, vm_sh, wait_for
 
@@ -65,16 +61,10 @@ def test_secrets_not_exposed(plugin):
     assert b"alice-secret".hex() not in logs
 
 
-def test_gui_page():
+def test_gui_page(gui_session):
     """The settings page renders (volt + forms compile) for a logged in user."""
-    s = requests.Session()
-    s.verify = False
-    base = f"https://127.0.0.1:{vmlib.GUI_PORT}"
-    form = s.get(f"{base}/").text
-    data = {"usernamefld": "root", "passwordfld": "opnsense", "login": "1"}
-    data.update(re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)"', form))
-    s.post(f"{base}/", data=data, allow_redirects=False)  # the redirect drops the forwarded port
-    page = s.get(f"{base}/ui/wan8021x")
+    session, base = gui_session
+    page = session.get(f"{base}/ui/wan8021x", timeout=60)
     assert page.status_code == 200
     assert "supplicantStatus" in page.text
     assert "/api/wan8021x/settings/search_supplicant" in page.text
