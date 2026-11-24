@@ -19,7 +19,11 @@
 ![status ok](docs/screenshots/status-ok.png)
 ![status failed](docs/screenshots/status-failed.png)
 
-目标平台为 OPNsense 26.7（FreeBSD 14）。插件位于 `net/wan8021x/`，目录结构与 [opnsense/plugins](https://github.com/opnsense/plugins) 一致，因此可以原样提交到上游。
+## 支持的 OPNsense 版本
+
+同一个 amd64 软件包支持 OPNsense 社区版 26.1.x（FreeBSD 14.3）和 26.7.x（FreeBSD 15.1）。软件包在解包前检查 OPNsense 版本，服务启动时会再次检查。CI 使用 26.1.6 和 26.7 的 nano 镜像进行兼容性测试。
+
+插件位于 `net/wan8021x/`，目录结构遵循 [opnsense/plugins](https://github.com/opnsense/plugins)。
 
 ## 工作原理
 
@@ -55,19 +59,20 @@ docs/              路线图、调研笔记、测试环境
 
 ## 开发
 
-宿主机需要带 compose 的 docker、git 以及 `/dev/kvm`。其余所有组件（QEMU、hostapd、PHP 和 Python 工具链）都由 `env/*/Dockerfile` 构建，所有输入（OPNsense 镜像及其 SHA256、基础镜像 digest、Debian snapshot、phpcs）都在 `env/versions.env` 和各 Dockerfile 中固定版本。
+宿主机需要 Docker Compose、Git、`/dev/kvm` 和 `/dev/net/tun`。其余组件（QEMU、hostapd、PHP 和 Python 工具链）由 `env/*/Dockerfile` 构建。镜像版本和校验和固定在 `env/opnsense/`、`env/versions.env` 和各 Dockerfile 中。
 
 ```sh
 git clone --recurse-submodules https://github.com/davidliyutong/opnsense-wan8021x.git
 make tools            # 构建本地镜像
-make image golden     # 下载并校验 OPNsense 26.7 nano，制作 golden 磁盘（约 1 分钟，仅需一次）
+make image golden     # 下载并校验 nano 镜像，制作 golden 磁盘
 make reset            # 基于 golden 磁盘重建全新虚拟机和认证端（约 20 秒）
 make deploy           # 在虚拟机内构建软件包并安装
 make test             # 针对运行中的虚拟机执行端到端测试（TESTARGS="-k vlan"）
 make lint             # 本地运行 phpcs/pycodestyle/shellcheck，并在虚拟机内运行上游 "make lint"
 make lint-local       # 只运行本地检查（不需要虚拟机），即 CI 运行的内容
 make ci-local         # 用 act 在本地运行 GitHub workflow，资源按 GitHub runner 限制
-make check            # lint + reset + deploy + test（约 3 分钟）
+make check            # 启动全新的 26.7 VM，检查、安装并测试
+make check OPNSENSE_SERIES=26.1  # 对 26.1 执行同样的检查
 make package          # .cache/pkg/os-wan8021x-devel-*.pkg
 make help             # 其他所有目标（console、ssh、logs、down 等）
 ```
@@ -76,9 +81,9 @@ GUI：https://127.0.0.1:18443（root / opnsense，自签名证书）；ssh：`ma
 
 ### CI 与发布
 
-每次 push 和 pull request 都会在固定版本的 dev 镜像中运行 `make lint-local`，并在 FreeBSD 15 虚拟机（OPNsense 26.7 的基础系统）中运行上游的 `make lint` 和 `make package`；生成的 `-devel` 软件包保存为 workflow artifact。端到端测试需要 `/dev/kvm` 和认证端，仍在本地运行（`make check`）。workflow 也可以用 act 在本地运行（`make ci-local`），资源限制和实测用量见 [docs/testenv.zh-CN.md](docs/testenv.zh-CN.md)。
+每次 push 和 pull request 都会在固定版本的 dev 镜像中运行 `make lint-local`，并在 FreeBSD 15 VM 中运行上游的 `make lint` 和 `make package`。每个 OPNsense CI 任务都会安装同一个 `-devel` 软件包，并运行完整的端到端测试。本地 CI 和兼容性矩阵的维护方式见 [docs/testenv.zh-CN.md](docs/testenv.zh-CN.md)。
 
-发布时，先在 `net/wan8021x/Makefile` 中设置 `PLUGIN_VERSION`，再推送对应的 tag（`v0.1`；若 `PLUGIN_REVISION=1` 则为 `v0.1_1`）。release workflow 会构建 `os-wan8021x-<version>.pkg`（不带 `-devel` 后缀），并连同 `SHA256SUMS` 一起发布为 GitHub release。
+发布时，先在 `net/wan8021x/Makefile` 中设置 `PLUGIN_VERSION`，再推送对应的 tag（`v0.1`，若 `PLUGIN_REVISION=1` 则为 `v0.1_1`）。发布流程会构建 `os-wan8021x-<version>.pkg`，在同一个矩阵中验证该包，全部通过后连同 `SHA256SUMS` 发布。
 
 ### 测试环境
 
@@ -94,7 +99,7 @@ GUI：https://127.0.0.1:18443（root / opnsense，自签名证书）；ssh：`ma
 
 测试账号：`alice` / `alice-secret`（PEAP、TTLS-MSCHAPv2、TTLS-PAP），`bob` / `bob-secret`，以及一个用户名含反斜杠和 UTF-8 字符、密码含引号的用户（见 `env/auth/eap_user`）。认证端（authenticator）可以拔掉虚拟机的网线、重置端口并报告已授权的 MAC（`authctl`）；测试通过 `.cache/run/authctl.sock` 访问它。详见 [docs/testenv.zh-CN.md](docs/testenv.zh-CN.md)。
 
-45 个端到端测试覆盖了：所有认证方式、错误密码、伪造 CA 与域名不匹配、特殊字符、链路中断（包括链路监控中断期间）、手动重新认证与认证端发起的重新认证、认证后网段变化时替换旧 DHCP 租约、保持授权期间的周期与手动重认证保留租约、限流窗口内的链路恢复延迟刷新 DHCP、静态 IPv4 保持不变、supplicant 崩溃、卡死或无法启动、链路断开时启动服务、配置生成失败与并发重启、状态文件无法写入、VLAN 上联、两个 VLAN 同时认证、接口重新分配、已保存但未应用的修改、重启、升级与卸载、输入校验、敏感信息保护以及 GUI 页面。`make lint-local` 同时运行守护进程的单元测试。
+46 个端到端测试覆盖了：所有认证方式、错误密码、伪造 CA 与域名不匹配、特殊字符、链路中断（包括链路监控中断期间）、手动重新认证与认证端发起的重新认证、认证后网段变化时替换旧 DHCP 租约、保持授权期间的周期与手动重认证保留租约、限流窗口内的链路恢复延迟刷新 DHCP、静态 IPv4 保持不变、supplicant 崩溃、卡死或无法启动、链路断开时启动服务、配置生成失败与并发重启、状态文件无法写入、VLAN 上联、两个 VLAN 同时认证、接口重新分配、已保存但未应用的修改、重启、升级与卸载、拒绝在未支持版本中安装、输入校验、敏感信息保护以及 GUI 页面。`make lint-local` 同时运行守护进程的单元测试。
 
 ## 状态与限制
 

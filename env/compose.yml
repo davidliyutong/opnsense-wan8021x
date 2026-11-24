@@ -16,10 +16,10 @@ services:
     devices: [/dev/kvm, /dev/net/tun]
     cap_add: [NET_ADMIN]
     environment:
-      VM_DISK: ${VM_DISK:-vm/overlay.qcow2}
-      OPNSENSE_VERSION: ${OPNSENSE_VERSION}
-      OPNSENSE_IMAGE: ${OPNSENSE_IMAGE}
-      OPNSENSE_SHA256: ${OPNSENSE_SHA256}
+      VM_DISK: ${VM_DISK:-vm/26.7/overlay.qcow2}
+      OPNSENSE_VERSION: ${OPNSENSE_VERSION:-26.7}
+      OPNSENSE_IMAGE: ${OPNSENSE_IMAGE:-}
+      OPNSENSE_SHA256: ${OPNSENSE_SHA256:-}
       HOST_UID: ${HOST_UID:-1000}
     volumes: [../.cache:/cache]
     ports:
@@ -47,6 +47,7 @@ services:
     user: ${HOST_UID:-1000}:${HOST_GID:-1000}
     environment:
       HOME: /home/dev
+      OPNSENSE_VERSION: ${OPNSENSE_VERSION:-26.7}
       SSH_PORT: ${SSH_PORT:-12222}
       GUI_PORT: ${GUI_PORT:-18443}
     volumes: [..:/src]

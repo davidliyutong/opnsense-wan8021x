@@ -4,6 +4,7 @@ on:
   push:
     branches: ['**']
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -35,3 +36,8 @@ jobs:
   build:
     name: Build
     uses: ./.github/workflows/build.yml
+
+  compatibility:
+    name: Compatibility
+    needs: build
+    uses: ./.github/workflows/compatibility.yml

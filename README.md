@@ -27,9 +27,15 @@ interfaces. This plugin adds one.
 ![status ok](docs/screenshots/status-ok.png)
 ![status failed](docs/screenshots/status-failed.png)
 
-Targets OPNsense 26.7 (FreeBSD 14). The plugin lives in `net/wan8021x/` with
-the same layout as [opnsense/plugins](https://github.com/opnsense/plugins), so
-it can be submitted upstream as is.
+## Supported OPNsense versions
+
+The same package supports OPNsense Community Edition 26.1.x (FreeBSD 14.3)
+and 26.7.x (FreeBSD 15.1) on amd64. The package checks the OPNsense release
+series before extracting files, and the service checks it again at startup.
+CI uses nano images from 26.1.6 and 26.7 for its compatibility tests.
+
+The plugin lives in `net/wan8021x/`, following the
+[opnsense/plugins](https://github.com/opnsense/plugins) layout.
 
 ## How it works
 
@@ -76,22 +82,22 @@ docs/              roadmap, research notes, test environment
 
 ## Development
 
-The host needs docker with compose, git and `/dev/kvm`. Everything else
+The host needs Docker with Compose, Git, `/dev/kvm` and `/dev/net/tun`. Everything else
 (QEMU, hostapd, PHP and Python tooling) is built from `env/*/Dockerfile`, and
-all inputs (OPNsense image + SHA256, base image digest, Debian snapshot,
-phpcs) are pinned in `env/versions.env` and the Dockerfiles.
+inputs are pinned in `env/opnsense/`, `env/versions.env` and the Dockerfiles.
 
 ```sh
 git clone --recurse-submodules https://github.com/davidliyutong/opnsense-wan8021x.git
 make tools            # build the local images
-make image golden     # download + verify OPNsense 26.7 nano, provision the golden disk (~1 min, once)
+make image golden     # download and verify the nano image, provision the golden disk
 make reset            # fresh VM from golden + authenticator (~20 s)
 make deploy           # build the package inside the VM and install it
 make test             # end-to-end tests against the running VM (TESTARGS="-k vlan")
 make lint             # phpcs/pycodestyle/shellcheck locally + upstream "make lint" in the VM
 make lint-local       # only the local checks (no VM), as run by CI
 make ci-local         # the GitHub workflows under act, capped like a GitHub runner
-make check            # lint + reset + deploy + test (~3 min)
+make check            # boot a fresh 26.7 VM, then lint, deploy and test
+make check OPNSENSE_SERIES=26.1  # run the same checks on 26.1
 make package          # .cache/pkg/os-wan8021x-devel-*.pkg
 make help             # everything else (console, ssh, logs, down, …)
 ```
@@ -102,17 +108,15 @@ ssh: `make ssh`. Ports are set in `env/versions.env`.
 ### CI and releases
 
 Every push and pull request runs `make lint-local` in the pinned dev image
-and, in a FreeBSD 15 VM (the base of OPNsense 26.7), the upstream
-`make lint` and `make package`; the `-devel` package is kept as a workflow
-artifact. The end-to-end tests need `/dev/kvm` plus the authenticator and stay
-local (`make check`). The workflows also run locally with act
-(`make ci-local`); see [docs/testenv.md](docs/testenv.md) for the resource
-limits and measured usage.
+and runs upstream `make lint` and `make package` in a FreeBSD 15 VM. Each
+OPNsense CI job installs the same `-devel` package and runs the full end-to-end
+suite on its release series. See [docs/testenv.md](docs/testenv.md) for local CI
+and for maintaining the compatibility matrix.
 
 To release, set `PLUGIN_VERSION` in `net/wan8021x/Makefile`, then push a
 matching tag (`v0.1`, or `v0.1_1` with `PLUGIN_REVISION=1`). The release
-workflow builds `os-wan8021x-<version>.pkg` (without the `-devel` suffix) and
-publishes it with a `SHA256SUMS` file as a GitHub release.
+workflow builds `os-wan8021x-<version>.pkg`, tests it across the same matrix,
+and publishes it with `SHA256SUMS` once those tests pass.
 
 ### Test environment
 
@@ -132,7 +136,7 @@ password with quotes (see `env/auth/eap_user`). The authenticator can pull the
 VM's cable, reset ports and report authorized MACs (`authctl`); the tests reach
 it via `.cache/run/authctl.sock`. Details: [docs/testenv.md](docs/testenv.md).
 
-The 45 end-to-end tests cover all methods, wrong password, rogue CA and
+The 46 end-to-end tests cover all methods, wrong password, rogue CA and
 domain mismatch, special characters, link loss (also while the link monitor is gone), manual and
 authenticator-initiated re-authentication, replacing an old DHCP lease after an
 authenticated subnet change, preserving DHCP through periodic and manual re-authentication,
@@ -141,7 +145,7 @@ preserving static IPv4, crashed, hung or
 unstartable supplicants, starting with the link down, failed configuration generation,
 concurrent restarts, an unwritable status file, VLAN uplinks, two VLANs at once,
 interface reassignment (GUI order and saved first), saved but unapplied changes, reboot,
-upgrade and uninstall, validation,
+upgrade, uninstall, rejection on an unsupported release, validation,
 secret handling and the GUI page. `make lint-local` also runs supervisor unit tests.
 
 ## Status and limitations

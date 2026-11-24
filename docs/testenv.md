@@ -2,7 +2,7 @@ English | [简体中文](testenv.zh-CN.md)
 
 # Test Environment
 
-The host only needs docker (with the compose plugin), git and `/dev/kvm`. Every other tool is
+The host needs Docker with Compose, Git, `/dev/kvm` and `/dev/net/tun`. Every other tool is
 built from the Dockerfiles in this repository, and all runtime state lives in `.cache/` (gitignored).
 
 ## Topology
@@ -11,7 +11,7 @@ built from the Dockerfiles in this repository, and all runtime state lives in `.
  127.0.0.1:18443 (GUI) ─┐
  127.0.0.1:12222 (ssh) ─┤ socat → QEMU hostfwd(127.0.0.1) → vtnet0 LAN 10.0.2.15/24
                         │
- container vm: qemu-system-x86_64 -enable-kvm  (OPNsense 26.7 nano)
+ container vm: qemu-system-x86_64 -enable-kvm  (selected OPNsense nano image)
     vtnet0 = LAN (QEMU user net, for management)
     vtnet1 = WAN ── tap-wan ─┐
                              │ (same network namespace)
@@ -36,7 +36,7 @@ A few details:
 |---|---|
 | OPNsense GUI/console | root / opnsense |
 | ssh | `.cache/ssh/id_ed25519` (`make ssh`) |
-| API | `.cache/ssh/apikey.json` |
+| API | `.cache/ssh/apikey-<image-version>.json` |
 | EAP | alice / alice-secret (PEAP, TTLS-MSCHAPv2, TTLS-PAP), bob / bob-secret |
 | CA | `.cache/auth/pki/ca.crt`; `rogue-ca.crt` is used to test CA verification failure |
 
@@ -73,18 +73,37 @@ without a link event; `authctl network default` restores the original subnet.
 ```
 make lint      # dev container: static checks and supervisor unit tests; VM: upstream make lint
 make test      # run e2e against the current VM (filter with TESTARGS="-k vlan")
-make check     # lint + reset + deploy + test, a full run from a clean state
+make check     # reset, lint, deploy and test OPNsense 26.7
+make check OPNSENSE_SERIES=26.1
 ```
+
+Use the same `OPNSENSE_SERIES` for VM commands in a test run. Each image has
+its own golden disk, overlay and API key. The VM and authenticator share ports
+and sockets, so run the two series sequentially in a local checkout.
 
 ## CI on GitHub and Locally with act
 
-`.github/workflows/` holds three workflows: `ci.yml` (every push and pull
-request), `build.yml` (reusable: upstream `make lint` + `make package` in a
-FreeBSD VM via `vmactions/freebsd-vm`) and `release.yml` (`v*` tags).
+`ci.yml` builds on pushes and pull requests. `build.yml` runs upstream lint
+and produces the package in a FreeBSD VM. `compatibility.yml` uses each
+profile in `env/opnsense/` to install and test the same package on OPNsense.
+`release.yml` runs that matrix against the package it will publish.
+
+The package lifecycle tests also run `pkg add` against an isolated root that
+reports an unsupported OPNsense series. They check the rejection message,
+package registration and payload files. Older `pkg` builds can return status 0
+when a pre-install hook stops extraction. Query the installed version with
+`pkg query '%v' os-wan8021x` when scripting a release install.
+
+To add a release series, pin its nano image and official SHA-256 in a new
+`env/opnsense/<series>.env`, add the series to the plugin's `check_compatibility.sh`,
+and update the supported versions in both READMEs after the matrix passes. To test
+a newer point release, update the image version, filename and checksum in
+that series' profile. To retire a series, remove its profile and compatibility
+entry together and update the READMEs.
 
 ```
-make ci-local                    # ci.yml under act, on a clean clone of HEAD
 make ci-local ACTARGS="-j lint"  # one job only
+make ci-local ACTARGS="-j build" # FreeBSD package build
 tools/ci-local.sh -W .github/workflows/release.yml -e EVENT.json -j build
                                  # release build; EVENT.json: {"ref":"refs/tags/v0.1"}
 ```
@@ -93,7 +112,8 @@ tools/ci-local.sh -W .github/workflows/release.yml -e EVENT.json -j build
 `.cache/act/work/repo`, builds the job image `env/act/Dockerfile` (the
 catthehacker ubuntu-24.04 image plus rsync, with the runner home at
 `.cache/act` so `vmactions/freebsd-vm` finds `$HOME/work` like on a GitHub
-runner) and passes `/dev/kvm` through. Artifacts land in
+runner) and passes `/dev/kvm` and `/dev/net/tun` through. It runs matrix jobs
+sequentially because they share local VM ports. Artifacts land in
 `.cache/act/artifacts`. Run the publish job of `release.yml` on GitHub only.
 
 ### Resource limits

@@ -56,8 +56,6 @@
                 </anonymous_identity>
                 <password type="UpdateOnlyTextField">
                     <Required>Y</Required>
-                    <Mask>/^[^\x00-\x08\x0A-\x1F\x{FFFE}\x{FFFF}]{1,256}$/u</Mask>
-                    <ValidationMessage>Enter the password (1 to 256 characters, no line breaks or control characters).</ValidationMessage>
                 </password>
                 <ca type="CertificateField">
                     <type>ca</type>

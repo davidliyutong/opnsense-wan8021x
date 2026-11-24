@@ -2,11 +2,13 @@
 authenticator through its control socket. Run inside the dev container
 (`make test`), against a VM with the plugin deployed."""
 import os
+import re
 import socket
 import sys
 import time
 
 import pytest
+import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "tools"))
 import vmlib  # noqa: E402
@@ -53,6 +55,24 @@ def vm_sh(script, check=True):
 def ipv4(device):
     out = vm_sh(f"ifconfig {device} 2>/dev/null | awk '/inet /{{print $2}}'", check=False)
     return out.strip().split("\n")[0]
+
+
+def hidden_fields(form):
+    return dict(re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)"', form))
+
+
+@pytest.fixture
+def gui_session():
+    """Log into the test VM's web UI and keep its forwarded port on redirects."""
+    base = f"https://127.0.0.1:{vmlib.GUI_PORT}"
+    with requests.Session() as session:
+        session.verify = False
+        form = session.get(f"{base}/", timeout=60)
+        form.raise_for_status()
+        data = hidden_fields(form.text)
+        data.update(usernamefld="root", passwordfld="opnsense", login="1")
+        session.post(f"{base}/", data=data, allow_redirects=False, timeout=60).raise_for_status()
+        yield session, base
 
 
 class Plugin:

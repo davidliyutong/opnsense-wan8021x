@@ -1,0 +1,2 @@
+# Check before the generated hooks reload the model, configd and templates.
+/usr/local/opnsense/scripts/OPNsense/Wan8021x/check_compatibility.sh || exit 0

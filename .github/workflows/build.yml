@@ -1,7 +1,7 @@
 name: Build
 
-# Runs the upstream "make lint" (needs FreeBSD tools) and "make package" in a
-# FreeBSD VM matching the OPNsense base major version, then uploads the pkg.
+# Runs upstream lint and builds the package in a FreeBSD VM. The OPNsense
+# compatibility workflow tests the resulting artifact on each supported series.
 on:
   workflow_call:
     inputs:

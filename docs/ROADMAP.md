@@ -23,7 +23,7 @@ the promisc option was removed (the core interface settings already provide it).
 
 ## Context
 
-OPNsense (currently 26.7.x, based on FreeBSD 14) has no GUI feature for 802.1X authentication on a wired WAN port. The only existing community solutions are shell scripts in the style of pfatt/opnatt ([opnatt-supplicant.sh](https://git.hhf.technology/hhf/pfatt/src/branch/supplicant/bin/opnatt-supplicant.sh)), which are hard to maintain. Goal: build a plugin that follows the opnsense/plugins conventions and lets the user configure PEAP / TTLS (MSCHAPv2) authentication for WAN (a physical port or a VLAN subinterface) in the GUI, together with a test environment built on Docker + KVM that can be reset with a single command. The whole toolchain lives in the current directory and is managed with git.
+OPNsense (currently 26.7.x, based on FreeBSD 15.1) has no GUI feature for 802.1X authentication on a wired WAN port. The only existing community solutions are shell scripts in the style of pfatt/opnatt ([opnatt-supplicant.sh](https://git.hhf.technology/hhf/pfatt/src/branch/supplicant/bin/opnatt-supplicant.sh)), which are hard to maintain. Goal: build a plugin that follows the opnsense/plugins conventions and lets the user configure PEAP / TTLS (MSCHAPv2) authentication for WAN (a physical port or a VLAN subinterface) in the GUI, together with a test environment built on Docker + KVM that can be reset with a single command. The whole toolchain lives in the current directory and is managed with git.
 
 Confirmed facts (research findings):
 - Host: Docker 29.8, `/dev/kvm` available, 16 cores / 60G RAM, 1.3T of free disk; no libvirt installed (and none needed); the project directory is empty.

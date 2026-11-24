@@ -3,7 +3,7 @@
 
   vmctl.py wait                 wait until the VM finished booting
   vmctl.py serial CMD...        run a shell command over the serial console
-  vmctl.py deploy PLUGIN_DIR    install the plugin source tree into the VM
+  vmctl.py deploy PLUGIN_DIR [PKGFILE]  install a local build or a prebuilt package
   vmctl.py remove PLUGIN_DIR    remove the plugin files from the VM
   vmctl.py package PLUGIN_DIR   build the pkg inside the VM, copy to .cache/pkg
   vmctl.py lint PLUGIN_DIR      run the upstream "make lint" inside the VM
@@ -84,8 +84,12 @@ def main():
         sys.exit(serial(" ".join(args)))
     elif cmd == "deploy":
         sync_tree(args[0])
-        # build and (re)install a real package, so the pkg scripts run like in production
-        make(args[0], "upgrade")
+        if len(args) > 1:
+            with open(args[1], "rb") as package:
+                subprocess.run(vmlib.ssh_base() + ["cat > /tmp/wan8021x.pkg && pkg add /tmp/wan8021x.pkg"],
+                               stdin=package, check=True)
+        else:
+            make(args[0], "upgrade")
         log(f"deployed {args[0]}")
     elif cmd == "remove":
         sync_tree(args[0])

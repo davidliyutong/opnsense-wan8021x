@@ -32,9 +32,14 @@ jobs:
     with:
       release: true
 
+  compatibility:
+    name: Compatibility
+    needs: build
+    uses: ./.github/workflows/compatibility.yml
+
   publish:
     name: Publish GitHub release
-    needs: build
+    needs: compatibility
     runs-on: ubuntu-latest
     permissions:
       contents: write

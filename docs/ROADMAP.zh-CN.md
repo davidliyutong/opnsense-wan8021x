@@ -23,7 +23,7 @@ link 监听用 `route -n monitor` 代替 devd（devd 只执行优先级最高的
 
 ## Context
 
-OPNsense（当前 26.7.x，基于 FreeBSD 14）没有在 WAN 有线口上做 802.1X 认证的 GUI 功能；社区现有方案只有 pfatt/opnatt 一类 shell 脚本（[opnatt-supplicant.sh](https://git.hhf.technology/hhf/pfatt/src/branch/supplicant/bin/opnatt-supplicant.sh)），并不可维护。目标：做一个符合 opnsense/plugins 规范的插件，在 GUI 中为 WAN（物理口或 VLAN 子接口）配置 PEAP / TTLS（MSCHAPv2）认证，并配套一个用 Docker + KVM 搭建、可一键重置的测试环境。所有工具链放在当前目录，使用 git 管理。
+OPNsense（当前 26.7.x，基于 FreeBSD 15.1）没有在 WAN 有线口上做 802.1X 认证的 GUI 功能；社区现有方案只有 pfatt/opnatt 一类 shell 脚本（[opnatt-supplicant.sh](https://git.hhf.technology/hhf/pfatt/src/branch/supplicant/bin/opnatt-supplicant.sh)），并不可维护。目标：做一个符合 opnsense/plugins 规范的插件，在 GUI 中为 WAN（物理口或 VLAN 子接口）配置 PEAP / TTLS（MSCHAPv2）认证，并配套一个用 Docker + KVM 搭建、可一键重置的测试环境。所有工具链放在当前目录，使用 git 管理。
 
 已确认的事实（调研结论）：
 - 宿主机：Docker 29.8、`/dev/kvm` 可用、16 核 / 60G 内存、磁盘 1.3T 空闲；目前没有 libvirt（不需要它），项目目录为空。

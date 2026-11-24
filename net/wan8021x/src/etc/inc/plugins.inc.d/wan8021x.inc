@@ -40,8 +40,8 @@ function wan8021x_configure()
 {
     return [
         'early' => ['wan8021x_configure_do'],
-        /* runs after every interface_configure(); assignments applied from the GUI are
-         * saved only afterwards, rc.syshook.d/config/50-wan8021x catches up on those */
+        /* Runs after interface_configure(). The config hook also catches GUI
+         * assignments saved after the interface is configured. */
         'dhcp' => ['wan8021x_configure_devices'],
     ];
 }

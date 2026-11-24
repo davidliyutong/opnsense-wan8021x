@@ -2,7 +2,7 @@ English | [简体中文](research.zh-CN.md)
 
 # Research and Spike Results
 
-Environment: OPNsense 26.7 (FreeBSD 14, nano image), virtio-net (vtnet1 = WAN); the authenticator is hostapd 2.11 wired with the built-in EAP server.
+Environment: OPNsense 26.7 (FreeBSD 15.1, nano image), virtio-net (vtnet1 = WAN), and hostapd 2.11 wired with the built-in EAP server.
 The spike scripts are in the `spikes/` directory.
 
 ## Background Research
@@ -91,7 +91,6 @@ In addition, the failure reason (wrong password or certificate error) must be sh
 * Core's interface settings already include `promisc` and `disablevlanhwfilter`, so the plugin no longer duplicates these two options.
 * Package lifecycle: core's `rc.configure_plugins` does not start services at POST_INSTALL. The plugin ships
   `+PRE_DEINSTALL.pre` (stop the service), `+POST_INSTALL.post` (restart the service if enabled) and `+POST_DEINSTALL.post` (cleanup).
-* The interface assignment API new in 26.7 (`interfaces/assignment/*`) only handles the assignment itself; setting the IP mode still goes through the legacy config.
-  Interfaces assigned via the API are locked by default and must be unlocked before they can be deleted.
+* 26.1 uses the legacy assignment page. 26.7 introduced the `interfaces/assignment/*` API, and 26.7.6 added IP settings to the assignment page. The legacy page and the API can both configure a new device before saving the assignment, so the plugin also follows the configuration-save event. The API locks new assignments by default. Unlock them before deleting them.
 * Upstream `make lint` depends on BSD find and sh, so it runs in the VM (requires syncing core's `Mk/`, `Scripts/` and `contrib/parallel-lint`);
   phpcs and pycodestyle run in the dev container using core's `ruleset.xml`.

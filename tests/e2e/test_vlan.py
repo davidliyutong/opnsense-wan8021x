@@ -1,4 +1,7 @@
 """802.1X on a tagged uplink: VLANs on the WAN NIC, each assigned as its own interface."""
+import json
+from functools import cache
+
 import pytest
 
 import vmlib
@@ -17,6 +20,37 @@ $cfg->save();
 
 VLAN_PREFIX = "wan8021x test"
 IFACE_PREFIX = "WANVLAN"
+LEGACY_ASSIGNMENTS = """php <<'PHP'
+<?php
+require_once 'config.inc';
+echo json_encode(config_read_array('interfaces'));
+PHP
+"""
+
+LEGACY_VLAN_ASSIGN = """<?php
+require_once 'config.inc';
+$cfg = OPNsense\\Core\\Config::getInstance();
+$interfaces = $cfg->object()->interfaces;
+for ($i = 1; isset($interfaces->{'opt' . $i}); $i++) {
+}
+$iface = $interfaces->addChild('opt' . $i);
+$iface->if = $argv[1];
+$iface->descr = $argv[2];
+$cfg->save();
+"""
+
+LEGACY_VLAN_REMOVE = """<?php
+require_once 'config.inc';
+require_once 'auth.inc';
+require_once 'util.inc';
+require_once 'filter.inc';
+require_once 'system.inc';
+require_once 'interfaces.inc';
+interface_reset($argv[1]);
+$cfg = OPNsense\\Core\\Config::getInstance();
+unset($cfg->object()->interfaces->{$argv[1]});
+$cfg->save();
+"""
 
 
 def vlans():
@@ -24,18 +58,32 @@ def vlans():
             if r["descr"].startswith(VLAN_PREFIX)]
 
 
+@cache
+def has_assignment_api():
+    controller = "/usr/local/opnsense/mvc/app/controllers/OPNsense/Interfaces/Api/AssignmentController.php"
+    return vmlib.ssh(f"test -f {controller}", check=False).returncode == 0
+
+
 def assignments():
-    return [r for r in vmlib.api("GET", "interfaces/assignment/search_item")["rows"]
-            if r["descr"].startswith(IFACE_PREFIX)]
+    if has_assignment_api():
+        rows = vmlib.api("GET", "interfaces/assignment/search_item")["rows"]
+    else:
+        rows = [{**interface, "identifier": name} for name, interface in json.loads(vm_sh(LEGACY_ASSIGNMENTS)).items()]
+    return [r for r in rows if r.get("descr", "").startswith(IFACE_PREFIX)]
 
 
 def cleanup():
     """Remove whatever a previous (possibly aborted) run left behind."""
     for row in assignments():
-        # interfaces assigned through the API start out locked
-        vmlib.api("POST", f"interfaces/assignment/set_item/{row['identifier']}", {"interface": {"lock": "0"}})
-        vmlib.api("POST", f"interfaces/assignment/del_item/{row['identifier']}")
-    vmlib.api("POST", "interfaces/assignment/reconfigure")
+        name = row["identifier"]
+        if has_assignment_api():
+            # interfaces assigned through the API start out locked
+            vmlib.api("POST", f"interfaces/assignment/set_item/{name}", {"interface": {"lock": "0"}})
+            vmlib.api("POST", f"interfaces/assignment/del_item/{name}")
+        else:
+            vmlib.ssh(f"cat > /tmp/wan8021x-vlan.php && php /tmp/wan8021x-vlan.php {name}", input=LEGACY_VLAN_REMOVE)
+    if has_assignment_api():
+        vmlib.api("POST", "interfaces/assignment/reconfigure")
     for row in vlans():
         vmlib.api("POST", f"interfaces/vlan_settings/del_item/{row['uuid']}")
     vmlib.api("POST", "interfaces/vlan_settings/reconfigure")
@@ -49,13 +97,16 @@ def add_vlan_iface(tag):
     vmlib.api("POST", "interfaces/vlan_settings/reconfigure")
     vlan = wait_for(lambda: [r for r in vlans() if r["tag"] == str(tag)], timeout=10, what=f"VLAN {tag}")[0]
     device = vlan["vlanif"].split()[0]  # "vlan01 [WANVLAN100]" once assigned
-    # a new VLAN device shows up among the assignable devices only after a moment
-    wait_for(lambda: device in vmlib.api("GET", "interfaces/assignment/get_item")["interface"]["if"],
-             timeout=30, what=f"{device} to become assignable")
-    r = vmlib.api("POST", "interfaces/assignment/add_item", {"interface": {"if": device,
-                                                                           "descr": f"{IFACE_PREFIX}{tag}"}})
-    assert r["result"] == "saved", r
-    vmlib.api("POST", "interfaces/assignment/reconfigure")
+    description = f"{IFACE_PREFIX}{tag}"
+    if has_assignment_api():
+        wait_for(lambda: device in vmlib.api("GET", "interfaces/assignment/get_item")["interface"]["if"],
+                 timeout=30, what=f"{device} to become assignable")
+        r = vmlib.api("POST", "interfaces/assignment/add_item", {"interface": {"if": device, "descr": description}})
+        assert r["result"] == "saved", r
+        vmlib.api("POST", "interfaces/assignment/reconfigure")
+    else:
+        vmlib.ssh(f"cat > /tmp/wan8021x-vlan.php && php /tmp/wan8021x-vlan.php {device} {description}",
+                  input=LEGACY_VLAN_ASSIGN)
     ifname = [r for r in assignments() if r["if"] == device][0]["identifier"]
     vmlib.ssh(f"cat > /tmp/dhcp.php && php /tmp/dhcp.php {ifname} && configctl interface reconfigure {ifname}",
               input=ENABLE_DHCP)
